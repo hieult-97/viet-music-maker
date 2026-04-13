@@ -239,7 +239,8 @@ export default function App(){
     if(def){setInstr(def.ins);setProduction(def.pr)}
   },[genre]);
 
-  const toast=(msg,type="info")=>{const id=Date.now();setToasts(t=>[...t,{id,msg,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),type==="err"||type==="warn"?5000:3200)};
+  const cleanErr=(m)=>{if(!m||typeof m!=="string")return"Lỗi";if(m.match(/[àáảãạăắằẳẵặâấầẩẫậ]/i))return m;return m.includes("quota")?"Hết quota — đợi hoặc đổi key":m.includes("rate")?"Hết rate limit — đợi 1 phút":m.includes("401")||m.includes("invalid")?"API key sai — kiểm tra lại":m.includes("fetch")||m.includes("network")?"Lỗi mạng":m.includes("format")?"AI trả sai format — thử lại":m.length>60?"Lỗi AI — thử lại":m};
+  const toast=(msg,type="info")=>{const id=Date.now();const m=type==="err"?cleanErr(msg):msg;setToasts(t=>[...t,{id,msg:m,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),type==="err"||type==="warn"?5000:3200)};
 
   // Auto-detect genre, mood, tempo, vocal from song data
   const autoConfig=useCallback((p)=>{
@@ -333,24 +334,32 @@ export default function App(){
       throw new Error("Tất cả providers hết quota. Vào ⚙ thêm key.");
     }
 
-    // Normal route: use selected provider, fallback on quota
-    for(let a=0;a<=retries;a++){
-      try{const r=await tryProv(prov);return r.text}
-      catch(e){
-        if(e.isQuota){
-          const alt=PROVS.find(p=>p.id!==prov&&keys[p.id]);
-          if(alt){
-            toast(`${PROVS.find(p=>p.id===prov)?.name} hết quota → ${alt.name}`,"warn");
-            setProv(alt.id);LS.s("vmm_p",alt.id);
-            try{const r=await tryProv(alt.id);return r.text}catch(e2){throw new Error(e2.message?.substring?.(0,100)||"Lỗi")}
+    // Normal route: try selected provider first, then ALL others on failure
+    const tried=new Set();
+    const tryAll=async(startProv)=>{
+      const order=[startProv,...PROVS.map(p=>p.id).filter(id=>id!==startProv&&keys[id])];
+      for(const pid of order){
+        if(tried.has(pid)||!keys[pid])continue;
+        tried.add(pid);
+        try{
+          const r=await tryProv(pid);
+          if(pid!==prov){
+            toast(`${PROVS.find(p=>p.id===prov)?.name} lỗi → dùng ${PROVS.find(p=>p.id===pid)?.name}`,"warn");
+            setProv(pid);LS.s("vmm_p",pid);
           }
-          throw new Error("Hết quota. Vào ⚙ thêm key khác");
+          return r.text;
+        }catch(e){
+          if(!e.isQuota&&!e.noKey){
+            // Non-quota error: retry once, then try next
+            await sleep(1000);
+            try{const r=await tryProv(pid);return r.text}catch{}
+          }
+          continue;
         }
-        const msg=e.message?.substring?.(0,100)||"Lỗi AI";
-        if(a<retries){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}
-        throw new Error(msg);
       }
-    }
+      throw new Error("Tất cả providers lỗi. Kiểm tra key trong ⚙");
+    };
+    return await tryAll(prov);
   },[prov,ak,keys]);
 
   const pJ=raw=>{const c=raw.replace(/```json|```/g,"").trim();const m=c.match(/\{[\s\S]*\}/);if(!m)throw new Error("AI trả sai format, thử lại");try{return JSON.parse(m[0])}catch{const fixed=m[0].replace(/"((?:[^"\\]|\\.)*)"/g,(match)=>match.replace(/[\x00-\x1f]/g,ch=>ch==="\n"?"\\n":ch==="\r"?"\\r":ch==="\t"?"\\t":""));return JSON.parse(fixed)}};
