@@ -275,26 +275,6 @@ export default function App(){
     setSong(cleaned);autoConfig(cleaned);
   },[autoConfig]);
 
-  // Thorough AI analysis → returns config matching our exact arrays
-  const analyzeSong=useCallback(async(title,artist)=>{
-    try{
-      const raw=await callAI("CHỈ JSON thuần túy.",
-`Phân tích bài "${title}"${artist?" - "+artist:""}.
-Chọn CHÍNH XÁC từ các option sau:
-
-genre: ${GENRES.join(", ")}
-mood: ${MOODS.join(", ")}
-tempo: slow/medium/fast
-bpm: số (60-180)
-vocal: ${VOCALS.join(", ")}
-instruments: chọn từ [${INSTRUMENTS.join(", ")}] — liệt kê 3-5 cái chính
-production: ${PRODUCTIONS.join(", ")}
-
-JSON:{"genre":"","mood":"","tempo":"","bpm":0,"vocal":"","instruments":"","production":""}`);
-      return pJ(raw);
-    }catch{return null}
-  },[callAI]);
-
   useEffect(()=>{if(!loading)return;const ms=["Đang tìm lyrics...","Phân tích cấu trúc...","Viết lời Việt giữ vần...","Tạo prompt 5 platforms..."];
     let i=0;setLoadMsg(ms[0]);const iv=setInterval(()=>{i=(i+1)%ms.length;setLoadMsg(ms[i])},2500);return()=>clearInterval(iv)},[loading]);
   useEffect(()=>{LS.s("vmm_tab",tab)},[tab]);
@@ -374,6 +354,26 @@ JSON:{"genre":"","mood":"","tempo":"","bpm":0,"vocal":"","instruments":"","produ
   },[prov,ak,keys]);
 
   const pJ=raw=>{const c=raw.replace(/```json|```/g,"").trim();const m=c.match(/\{[\s\S]*\}/);if(!m)throw new Error("AI trả sai format, thử lại");try{return JSON.parse(m[0])}catch{const fixed=m[0].replace(/"((?:[^"\\]|\\.)*)"/g,(match)=>match.replace(/[\x00-\x1f]/g,ch=>ch==="\n"?"\\n":ch==="\r"?"\\r":ch==="\t"?"\\t":""));return JSON.parse(fixed)}};
+
+  // Thorough AI analysis → returns config matching our exact arrays
+  const analyzeSong=useCallback(async(title,artist)=>{
+    try{
+      const raw=await callAI("CHỈ JSON thuần túy.",
+`Phân tích bài "${title}"${artist?" - "+artist:""}.
+Chọn CHÍNH XÁC từ các option sau:
+
+genre: ${GENRES.join(", ")}
+mood: ${MOODS.join(", ")}
+tempo: slow/medium/fast
+bpm: số (60-180)
+vocal: ${VOCALS.join(", ")}
+instruments: chọn từ [${INSTRUMENTS.join(", ")}] — liệt kê 3-5 cái chính
+production: ${PRODUCTIONS.join(", ")}
+
+JSON:{"genre":"","mood":"","tempo":"","bpm":0,"vocal":"","instruments":"","production":""}`);
+      return pJ(raw);
+    }catch{return null}
+  },[callAI]);
 
   const genPrompts=useCallback(async(lyrics,title,g,m,t,v,instrArr,prod,cbpm)=>{
     const bpm=cbpm?parseInt(cbpm):bpmFrom(t);const vE=v.includes("nữ")||v==="Duet"?"female":"male";
