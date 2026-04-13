@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const PROVS=[
-  {id:"groq",name:"Groq",url:"https://api.groq.com/openai/v1/chat/completions",model:"llama-3.3-70b-versatile",keyUrl:"https://console.groq.com/keys",ph:"gsk_...",desc:"Nhanh nhất · 30 req/phút"},
-  {id:"gemini",name:"Gemini",url:"GEM",model:"gemini-2.0-flash",keyUrl:"https://aistudio.google.com/apikey",ph:"AIza...",desc:"Google · 15 req/phút"},
+  {id:"gemini",name:"Gemini",url:"GEM",model:"gemini-2.0-flash",keyUrl:"https://aistudio.google.com/apikey",ph:"AIza...",desc:"⭐ Google Search · Lyrics chính xác nhất",type:"gemini"},
+  {id:"groq",name:"Groq",url:"https://api.groq.com/openai/v1/chat/completions",model:"llama-3.3-70b-versatile",keyUrl:"https://console.groq.com/keys",ph:"gsk_...",desc:"Siêu nhanh · 30 req/phút",type:"openai"},
+  {id:"cerebras",name:"Cerebras",url:"https://api.cerebras.ai/v1/chat/completions",model:"llama-3.3-70b",keyUrl:"https://cloud.cerebras.ai/",ph:"csk-...",desc:"Cực nhanh · Llama 3.3 70B",type:"openai"},
+  {id:"sambanova",name:"SambaNova",url:"https://api.sambanova.ai/v1/chat/completions",model:"Meta-Llama-3.3-70B-Instruct",keyUrl:"https://cloud.sambanova.ai/apis",ph:"sk-...",desc:"Nhanh · Free không giới hạn",type:"openai"},
+  {id:"openrouter",name:"OpenRouter",url:"https://openrouter.ai/api/v1/chat/completions",model:"google/gemini-2.0-flash-exp:free",keyUrl:"https://openrouter.ai/keys",ph:"sk-or-...",desc:"Nhiều model free · Gemini/Llama",type:"openai"},
 ];
 const GENRES=["Pop","K-pop","Synth Pop","Dance Pop","Ballad","R&B","Hip-hop","Trap","Phonk","EDM","House","Future Bass","Dubstep","Ambient","Rock","Alternative","Indie","Metal","Punk","Acoustic","Folk","Country","Singer-songwriter","Jazz","Bossa Nova","Lo-fi","Synthwave","Disco","Funk","Soul","Blues","Reggaeton","Classical","Gospel"];
 const MOODS=["Buồn","Vui","Chill","Sâu lắng","Năng lượng","Lãng mạn","Cô đơn","Hy vọng","Dramatic","Dreamy","Dark","Nostalgic","Epic","Angry","Mysterious","Groovy","Peaceful","Playful","Bittersweet","Empowering"];
@@ -96,7 +99,7 @@ export default function App(){
   const[mode,setMode]=useState("foreign");
   const[copied,setCopied]=useState("");
   const[tab,setTab]=useState(LS.g("vmm_tab","suno"));
-  const[prov,setProv]=useState(LS.g("vmm_p","groq"));
+  const[prov,setProv]=useState(LS.g("vmm_p","gemini"));
   const[keys,setKeys]=useState(LS.g("vmm_k",{}));
   const[showSet,setShowSet]=useState(false);
   const[hist,setHist]=useState(LS.g("vmm_h6",[]));
@@ -140,10 +143,23 @@ export default function App(){
       else if(s===2&&rewriteFn.current)rewriteFn.current();
     };window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
 
-  const callAI=useCallback(async(sys,usr,retries=2)=>{
+  const callAI=useCallback(async(sys,usr,retries=2,useSearch=false)=>{
+    const provCfg=PROVS.find(p=>p.id===prov);
     for(let a=0;a<=retries;a++){try{
-      if(prov==="gemini"){const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${ak}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:`${sys}\n\n${usr}`}]}],generationConfig:{temperature:0.7,maxOutputTokens:4096}})});const d=await r.json();if(d.error)throw new Error(d.error.message);return d.candidates?.[0]?.content?.parts?.[0]?.text||""}
-      const r=await fetch(PROVS[0].url,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${ak}`},body:JSON.stringify({model:PROVS[0].model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:0.7,max_tokens:4096})});const d=await r.json();if(d.error)throw new Error(d.error.message);return d.choices[0].message.content;
+      if(provCfg.type==="gemini"){
+        const body={contents:[{parts:[{text:`${sys}\n\n${usr}`}]}],generationConfig:{temperature:0.7,maxOutputTokens:4096}};
+        if(useSearch)body.tools=[{google_search:{}}];
+        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${ak}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+        const d=await r.json();if(d.error)throw new Error(d.error.message);
+        const parts=d.candidates?.[0]?.content?.parts||[];
+        return parts.map(p=>p.text||"").join("\n");
+      }
+      // OpenAI-compatible: Groq, Cerebras, SambaNova, OpenRouter
+      const headers={"Content-Type":"application/json",Authorization:`Bearer ${ak}`};
+      if(provCfg.id==="openrouter")headers["HTTP-Referer"]="https://viet-music-maker.vercel.app";
+      const r=await fetch(provCfg.url,{method:"POST",headers,body:JSON.stringify({model:provCfg.model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:0.7,max_tokens:4096})});
+      const d=await r.json();if(d.error)throw new Error(d.error?.message||JSON.stringify(d.error));
+      return d.choices[0].message.content;
     }catch(e){if(a<retries){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}throw e}}
   },[prov,ak]);
 
@@ -186,13 +202,14 @@ TẠO JSON:
     setLoading(true);setSuggestions(null);
     
     if(!isSpecificQuery(q)){
-      // General query → get suggestions
+      // General query → get suggestions (with web search for better results)
       try{
         const raw=await callAI(
 `Chuyên gia âm nhạc quốc tế. CHỈ JSON array thuần túy, KHÔNG markdown/backtick.`,
 `Người dùng tìm: "${q}"
 Gợi ý 6 bài hát phù hợp nhất. Đa dạng ca sĩ/năm. CHỈ trả JSON array:
-[{"title":"tên bài","artist":"ca sĩ","year":2020,"genre":"Pop","mood":"buồn","desc":"mô tả 1 câu ngắn vì sao bài này hay/phù hợp","lang":"English/Chinese/Korean/Vietnamese/etc"}]`);
+[{"title":"tên bài","artist":"ca sĩ","year":2020,"genre":"Pop","mood":"buồn","desc":"mô tả 1 câu ngắn vì sao bài này hay/phù hợp","lang":"English/Chinese/Korean/Vietnamese/etc"}]`,
+        2, true);
         const clean=raw.replace(/```json|```/g,"").trim();
         const arr=JSON.parse(clean.match(/\[[\s\S]*\]/)?.[0]||"[]");
         if(arr.length>0){setSuggestions(arr);toast(`${arr.length} bài gợi ý`,"ok")}
@@ -201,38 +218,53 @@ Gợi ý 6 bài hát phù hợp nhất. Đa dạng ca sĩ/năm. CHỈ trả JSON
       setLoading(false);return;
     }
 
-    // Specific query → direct lyrics search
+    // Specific query → search web for real lyrics
     try{
+      setLoadMsg("Tìm lyrics trên mạng...");
       const raw=await callAI(
-`Chuyên gia âm nhạc. CHỈ JSON thuần túy, KHÔNG markdown/backtick.
-Nếu KHÔNG BIẾT hoặc KHÔNG CHẮC bài này, trả về: {"error":"Không tìm thấy bài này"}`,
-`Bài: "${q}"
-JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][Bridge][Pre-Chorus][Outro]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"Am","instruments":"nhạc cụ","confidence":"high/low","note":"ghi chú nếu không chắc"}`);
+`Chuyên gia âm nhạc. Hãy TÌM KIẾM trên mạng để lấy lyrics CHÍNH XÁC của bài hát.
+CHỈ JSON thuần túy, KHÔNG markdown/backtick.
+Nếu KHÔNG TÌM THẤY lyrics trên mạng, trả về: {"error":"Không tìm thấy lyrics"}
+QUAN TRỌNG: Lyrics phải là lyrics THẬT tìm được, KHÔNG ĐƯỢC tự bịa.`,
+`Tìm lyrics bài: "${q}"
+JSON:{"title":"tên chính xác","artist":"ca sĩ","lyrics":"TOÀN BỘ lyrics THẬT tìm được trên mạng, có [Verse 1][Chorus][Bridge][Pre-Chorus][Outro]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"Am","instruments":"nhạc cụ","confidence":"high/low","note":"nguồn lyrics nếu có"}`,
+      2, true);
       const p=pJ(raw);
-      if(p.error){toast("Không tìm thấy — thử paste lyrics thủ công","warn");setLoading(false);return}
+      if(p.error){toast("Không tìm thấy lyrics — thử paste thủ công","warn");setLoading(false);return}
       setSong(p);const g=GENRES.find(g=>p.genre?.toLowerCase().includes(g.toLowerCase()));if(g)setGenre(g);
       setStep(1);
-      if(p.confidence==="low")toast("Lyrics có thể sai — nên paste lyrics thật","warn");
+      if(p.confidence==="low")toast("Lyrics có thể chưa chính xác — nên kiểm tra lại","warn");
       else toast("Tìm thấy!","ok");
     }catch(e){toast(e.message,"err")}setLoading(false);
   },[q,ak,callAI,isSpecificQuery]);
 
   // Pick a suggestion → fetch full lyrics
   const handlePick=useCallback(async(s)=>{
-    if(!ak)return;setLoading(true);setSuggestions(null);setQ(s.title+" - "+s.artist);
+    if(!ak){setShowSet(true);return}
+    setLoading(true);setSuggestions(null);setQ(s.title+" - "+s.artist);
+    setLoadMsg("Tìm lyrics "+s.title+"...");
     try{
       const raw=await callAI(
-`Chuyên gia âm nhạc. CHỈ JSON thuần túy.
-Nếu KHÔNG CHẮC lyrics, trả confidence:"low".`,
-`Bài: "${s.title}" - ${s.artist}
-JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][Bridge][Pre-Chorus][Outro]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"Am","instruments":"nhạc cụ","confidence":"high/low","note":""}`);
+`Chuyên gia âm nhạc. TÌM KIẾM trên mạng để lấy lyrics CHÍNH XÁC.
+CHỈ JSON thuần túy. Nếu KHÔNG TÌM THẤY, trả: {"error":"Không tìm thấy"}
+KHÔNG ĐƯỢC tự bịa lyrics.`,
+`Tìm lyrics: "${s.title}" - ${s.artist}
+JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics THẬT có [Verse 1][Chorus][Bridge]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"","instruments":"","confidence":"high/low","note":""}`,
+      2, true);
       const p=pJ(raw);
-      if(p.error){toast("Không lấy được lyrics — thử paste thủ công","warn");setLoading(false);return}
+      if(p.error||!p.lyrics||p.lyrics.length<50){
+        // Fallback to paste mode
+        setPasteMode(true);setPasteLy("");setLoading(false);
+        toast(`Không tìm được lyrics "${s.title}" — paste lyrics thủ công`,"warn");return;
+      }
       setSong(p);const g=GENRES.find(g=>p.genre?.toLowerCase().includes(g.toLowerCase()));if(g)setGenre(g);
       setStep(1);
-      if(p.confidence==="low")toast("Lyrics có thể sai — nên paste lyrics thật","warn");
-      else toast("Đã chọn: "+s.title,"ok");
-    }catch(e){toast(e.message,"err")}setLoading(false);
+      if(p.confidence==="low")toast("Lyrics có thể chưa chính xác","warn");
+      else toast("Đã tìm được: "+s.title,"ok");
+    }catch(e){
+      setPasteMode(true);setPasteLy("");
+      toast("Lỗi tìm lyrics — paste thủ công","warn");
+    }setLoading(false);
   },[ak,callAI]);
 
   useEffect(()=>{searchFn.current=handleSearch},[handleSearch]);
@@ -459,7 +491,9 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
             <button className="btn bp" onClick={handleSearch} disabled={loading||!q.trim()} style={{fontSize:14}}>Tìm</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
-            {!ak?<p style={{color:"#f87171",fontSize:12.5,cursor:"pointer",fontWeight:500}} onClick={()=>setShowSet(true)}>⚠ Bấm vào đây để nhập API key (miễn phí)</p>:<span/>}
+            {!ak?<p style={{color:"#f87171",fontSize:12.5,cursor:"pointer",fontWeight:500}} onClick={()=>setShowSet(true)}>⚠ Bấm vào đây để nhập API key (miễn phí)</p>
+            :prov!=="gemini"?<p style={{color:C.t4,fontSize:11.5,cursor:"pointer"}} onClick={()=>setShowSet(true)}>💡 Đổi sang <strong style={{color:"#60a5fa"}}>Gemini</strong> để tìm lyrics chính xác hơn (có Google Search)</p>
+            :<span/>}
             <button onClick={()=>setPasteMode(true)} style={{background:"none",border:"none",color:C.t3,fontSize:12.5,cursor:"pointer",textDecoration:"underline",padding:"4px 0"}}>Hoặc paste lyrics chính xác →</button>
           </div>
 
@@ -551,8 +585,10 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
           {song.confidence==="low"&&<div style={{background:"#fbbf2410",border:"1px solid #fbbf2422",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
             <p style={{color:"#fbbf24",fontSize:12.5}}>⚠ AI không chắc lyrics đúng. Bấm vào câu sai để sửa, hoặc <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:"#fbbf24",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'"}}>paste lại toàn bộ</button></p>
           </div>}
-          {song.confidence!=="low"&&song.confidence!=="manual"&&<div style={{background:"#fbbf2410",border:"1px solid #fbbf2422",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
-            <p style={{color:"#fbbf24",fontSize:12.5}}>⚠ Lyrics từ AI thường sai 30-50%. <strong>Khuyến khích:</strong> vào <a href="https://genius.com" target="_blank" rel="noopener" style={{color:"#fbbf24"}}>genius.com</a> copy lyrics thật → <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:"#fbbf24",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'",fontWeight:600}}>paste vào đây</button></p>
+          {song.confidence!=="low"&&song.confidence!=="manual"&&<div style={{background:prov==="gemini"?C.gold+"08":"#fbbf2410",border:`1px solid ${prov==="gemini"?C.gold+"15":"#fbbf2422"}`,borderRadius:8,padding:"8px 12px",marginBottom:10}}>
+            {prov==="gemini"?
+              <p style={{color:C.t3,fontSize:12.5}}>Lyrics tìm qua Google Search. Kiểm tra lại nếu cần. <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:C.gold,textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'"}}>Paste lyrics khác</button></p>
+            :<p style={{color:"#fbbf24",fontSize:12.5}}>⚠ {PROVS.find(p=>p.id===prov)?.name} không search web — lyrics có thể sai. <button onClick={()=>setShowSet(true)} style={{background:"none",border:"none",color:"#60a5fa",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'",fontWeight:600}}>Đổi sang Gemini</button> hoặc <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:"#fbbf24",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'",fontWeight:600}}>paste lyrics thật</button></p>}
           </div>}
           <div style={Z.lyBox}>
             {song.lyrics.split("\n").map((line,i)=>{const isSec=line.match(/^\[/);
