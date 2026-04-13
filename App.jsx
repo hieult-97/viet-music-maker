@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+\import { useState, useRef, useEffect, useCallback } from "react";
 
 const PROVS=[
   {id:"groq",name:"Groq",url:"https://api.groq.com/openai/v1/chat/completions",model:"llama-3.3-70b-versatile",keyUrl:"https://console.groq.com/keys",ph:"gsk_...",desc:"Nhanh nhất · 30 req/phút"},
@@ -26,9 +26,9 @@ const PLATS=[
   {id:"stableaudio",name:"Stable Audio",url:"https://stableaudio.com",free:"20 tr/tháng",color:"#fbbf24",icon:"🔊",vocal:false,desc:"Nhạc nền HQ. Negative prompt.",how:"Prompt + negative + duration → Generate",exP:"pop ballad instrumental, piano, strings, 85bpm, wide stereo, warm mastering"},
   {id:"riffusion",name:"Riffusion",url:"https://www.riffusion.com",free:"Free",color:"#f87171",icon:"🎸",vocal:true,desc:"Nhanh. Thử ý tưởng.",how:"Prompt ngắn + lyrics ngắn",exP:"Vietnamese pop ballad, male vocal, piano, 85bpm"},
 ];
-const C={bg1:"#0f1117",bg2:"#181b24",card:"#14161e",border:"#282d3a",gold:"#e8d5b7",t1:"#eaedf3",t2:"#b8bcc8",t3:"#828899",t4:"#555b6e"};
+const C={bg1:"#0f1117",bg2:"#1c2030",card:"#171a25",border:"#2e3448",gold:"#e8d5b7",t1:"#eaedf3",t2:"#b8bcc8",t3:"#8b91a0",t4:"#6b7280"};
 const LS={g:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch{return d}},s:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
-const countSyl=t=>{if(!t||t.match(/^\[/)||t.match(/^\(/)||!t.trim())return 0;return t.trim().replace(/[,.\-!?;:"""''()…]/g,"").split(/\s+/).filter(Boolean).length};
+const countSyl=t=>{if(!t||t.match(/^\[/)||t.match(/^\(/)||!t.trim())return 0;return t.trim().replace(/\([^)]*\)/g,"").replace(/[,.\-!?;:"""''…]/g,"").split(/\s+/).filter(Boolean).length};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const recPlat=(g,m)=>(g==="Hip-hop"||g==="EDM"||g==="Trap")?"suno":(m==="Chill"||g==="Lo-fi")?"udio":"suno";
 const bpmFrom=t=>t.includes("60")?70:t.includes("80")?95:t.includes("110")?125:150;
@@ -64,6 +64,7 @@ export default function App(){
   const[promptsDirty,setPromptsDirty]=useState(false);
   const[editSongLine,setEditSongLine]=useState(null);
   const[editSongTxt,setEditSongTxt]=useState("");
+  const[suggestions,setSuggestions]=useState(null); // [{title,artist,desc,genre,mood}]
   const rRef=useRef(null);
   const ak=keys[prov]||"";
 
@@ -113,10 +114,38 @@ TẠO JSON:
     return pJ(raw);
   },[callAI]);
 
+  const isSpecificQuery=useCallback(query=>{
+    // Has "artist - title" pattern or "by artist"
+    if(query.includes(" - ")||query.includes(" by "))return true;
+    // Short queries with max 4 words are likely song titles
+    const words=query.trim().split(/\s+/);
+    if(words.length<=4&&!query.match(/hay|nhất|buồn|chill|hot|tình|yêu|về|loại|thể/i))return true;
+    return false;
+  },[]);
+
   const handleSearch=useCallback(async()=>{
     if(!q.trim()){return}
     if(!ak){setShowSet(true);toast("Nhập API key trước (miễn phí)","warn");return}
-    setLoading(true);try{
+    setLoading(true);setSuggestions(null);
+    
+    if(!isSpecificQuery(q)){
+      // General query → get suggestions
+      try{
+        const raw=await callAI(
+`Chuyên gia âm nhạc quốc tế. CHỈ JSON array thuần túy, KHÔNG markdown/backtick.`,
+`Người dùng tìm: "${q}"
+Gợi ý 6 bài hát phù hợp nhất. Đa dạng ca sĩ/năm. CHỈ trả JSON array:
+[{"title":"tên bài","artist":"ca sĩ","year":2020,"genre":"Pop","mood":"buồn","desc":"mô tả 1 câu ngắn vì sao bài này hay/phù hợp","lang":"English/Chinese/Korean/Vietnamese/etc"}]`);
+        const clean=raw.replace(/```json|```/g,"").trim();
+        const arr=JSON.parse(clean.match(/\[[\s\S]*\]/)?.[0]||"[]");
+        if(arr.length>0){setSuggestions(arr);toast(`${arr.length} bài gợi ý`,"ok")}
+        else{toast("Không tìm thấy gợi ý — thử từ khoá khác","warn")}
+      }catch(e){toast("Lỗi gợi ý: "+e.message,"err")}
+      setLoading(false);return;
+    }
+
+    // Specific query → direct lyrics search
+    try{
       const raw=await callAI(
 `Chuyên gia âm nhạc. CHỈ JSON thuần túy, KHÔNG markdown/backtick.
 Nếu KHÔNG BIẾT hoặc KHÔNG CHẮC bài này, trả về: {"error":"Không tìm thấy bài này"}`,
@@ -129,7 +158,25 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
       if(p.confidence==="low")toast("Lyrics có thể sai — nên paste lyrics thật","warn");
       else toast("Tìm thấy!","ok");
     }catch(e){toast(e.message,"err")}setLoading(false);
-  },[q,ak,callAI]);
+  },[q,ak,callAI,isSpecificQuery]);
+
+  // Pick a suggestion → fetch full lyrics
+  const handlePick=useCallback(async(s)=>{
+    if(!ak)return;setLoading(true);setSuggestions(null);setQ(s.title+" - "+s.artist);
+    try{
+      const raw=await callAI(
+`Chuyên gia âm nhạc. CHỈ JSON thuần túy.
+Nếu KHÔNG CHẮC lyrics, trả confidence:"low".`,
+`Bài: "${s.title}" - ${s.artist}
+JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][Bridge][Pre-Chorus][Outro]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"Am","instruments":"nhạc cụ","confidence":"high/low","note":""}`);
+      const p=pJ(raw);
+      if(p.error){toast("Không lấy được lyrics — thử paste thủ công","warn");setLoading(false);return}
+      setSong(p);const g=GENRES.find(g=>p.genre?.toLowerCase().includes(g.toLowerCase()));if(g)setGenre(g);
+      setStep(1);
+      if(p.confidence==="low")toast("Lyrics có thể sai — nên paste lyrics thật","warn");
+      else toast("Đã chọn: "+s.title,"ok");
+    }catch(e){toast(e.message,"err")}setLoading(false);
+  },[ak,callAI]);
 
   useEffect(()=>{searchFn.current=handleSearch},[handleSearch]);
 
@@ -141,24 +188,40 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
     if(!song||!ak)return;setLoading(true);
     const bpm=bpmFrom(tempo);const vE=vocal.includes("nữ")||vocal==="Duet"?"female":"male";
     const task=mode==="foreign"?"CHUYỂN sang TIẾNG VIỆT":"VIẾT BÀI MỚI tiếng Việt lấy cảm hứng từ";
+
+    // Pre-calculate syllable targets per line
+    const origLines=song.lyrics.split("\n");
+    let sylGuide="";let lineNum=0;
+    origLines.forEach(l=>{
+      if(l.match(/^\[/)){sylGuide+=`\n${l}\n`}
+      else if(l.match(/^\(/)||!l.trim()){/* skip */}
+      else{lineNum++;const syl=countSyl(l);sylGuide+=`  Dòng ${lineNum}: "${l.substring(0,40)}${l.length>40?"...":""}" → ${syl} âm tiết → viết câu Việt ${syl} âm tiết\n`}
+    });
+
     try{
     setLoadMsg("Viết lời Việt (~10s)...");
-    const lRaw=await callAI(`Nhạc sĩ Việt chuyên nghiệp. CHỈ JSON.`,
+    const lRaw=await callAI(`Bạn là nhạc sĩ Việt Nam chuyên nghiệp. Nhiệm vụ: viết lời Việt cho bài hát, giữ ĐÚNG số âm tiết từng câu. CHỈ trả JSON.`,
 `${task}: "${song.title}"${song.artist?" - "+song.artist:""}
-${genre}|${mood}|${bpm}BPM|Vocal:${vocal}|Instruments:${song.instruments||"N/A"}|Key:${song.key||"N/A"}
-${notes?`Yêu cầu:${notes}`:""}
+Thể loại: ${genre} | Mood: ${mood} | ${bpm}BPM | Vocal: ${vocal}
+${notes?`Yêu cầu thêm: ${notes}`:""}
 
-LYRICS GỐC:
-${song.lyrics}
+LYRICS GỐC + SỐ ÂM TIẾT TỪNG DÒNG (BẮT BUỘC KHỚP):
+${sylGuide}
 
-QUY TẮC BẮT BUỘC:
-1. GIỮ ĐÚNG cấu trúc section
-2. Mỗi câu Việt ≈ số âm tiết câu gốc (±2). VD: "When I look into your eyes"(7) → "Khi anh nhìn vào mắt em"(7)
-3. Vần tự nhiên cuối câu
-4. HÁT ĐƯỢC — tránh từ khó phát âm ở nốt cao
-5. [Verse 1][Pre-Chorus][Chorus][Bridge][Outro] trên dòng riêng
+QUY TẮC:
+1. MỖI CÂU VIỆT PHẢI CÓ ĐÚNG SỐ ÂM TIẾT như chỉ định ở trên (sai lệch tối đa ±1)
+2. Vần cuối câu tự nhiên — vần liền hoặc vần cách
+3. Lời phải HÁT ĐƯỢC — không dùng từ khó phát âm, không dùng từ Hán Việt nặng
+4. Giữ cảm xúc/theme chính của bài gốc, KHÔNG cần dịch sát nghĩa
+5. KHÔNG viết (em) (anh) hoặc tag trong câu lyrics. Lyrics là lời hát thuần tuý
+6. Section markers [Verse 1] [Chorus] etc. trên dòng riêng
+7. Hướng dẫn giọng nếu cần: đặt trên dòng riêng (Nhẹ nhàng), (Mạnh mẽ)
 
-JSON: {"title":"tên Việt","lyrics":"full lyrics có section markers"}`);
+VÍ DỤ ĐÚNG:
+Gốc: "When I look into your eyes" (7) → Việt: "Khi anh nhìn vào đôi mắt em" (7) ✓
+Gốc: "I see the universe" (5) → Việt: "Thấy cả bầu trời" (4) ✗ SAI — phải 5: "Anh thấy cả trời sao" (5) ✓
+
+JSON: {"title":"tên Việt","lyrics":"full lyrics có section markers, KHÔNG có số âm tiết, CHỈ lời hát"}`);
     const lR=pJ(lRaw);
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
     const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,song.instruments);
@@ -211,7 +274,7 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
 
   const cp=(t,l)=>{navigator.clipboard.writeText(t);setCopied(l);setTimeout(()=>setCopied(""),1800)};
   const CB=({text,label,color})=>(<button onClick={()=>cp(text,label)} style={{...Z.cb,borderColor:color||C.gold,color:copied===label?"#1a1a2e":(color||C.gold),background:copied===label?(color||C.gold):"transparent"}}>{copied===label?"✓ Copied":"Copy"}</button>);
-  const reset=()=>{setStep(0);setQ("");setSong(null);setViet(null);setNotes("");setEditLine(null);setEditSongLine(null);setPasteMode(false);setPasteLy("");setUndos([]);setPromptsDirty(false)};
+  const reset=()=>{setStep(0);setQ("");setSong(null);setViet(null);setNotes("");setEditLine(null);setEditSongLine(null);setPasteMode(false);setPasteLy("");setUndos([]);setPromptsDirty(false);setSuggestions(null)};
   const ap=PLATS.find(p=>p.id===tab);const pd=viet?.prompts?.[tab];
   const getSec=ly=>ly?[...new Set((ly.match(/\[([^\]]+)\]/g)||[]).map(x=>x.replace(/[\[\]]/g,"")))]:[]; 
   const applyPreset=p=>{setGenre(p.g);setMood(p.m);setTempo(p.t);setVocal(p.v);toast(p.name,"info")};
@@ -276,7 +339,7 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
       <header style={Z.hdr}>
         <div style={{display:"flex",alignItems:"center",gap:12,cursor:"pointer"}} onClick={reset}>
           <div style={Z.logo}>♪</div>
-          <div><h1 style={Z.h1}>Việt Music Maker</h1><p style={{fontSize:12,color:C.t4}}>Nhạc ngoại → Lời Việt → AI Music</p></div>
+          <div><h1 style={Z.h1}>Việt Music Maker</h1><p style={{fontSize:12,color:C.t4}}>Viết lời Việt + tạo nhạc AI từ bài gốc</p></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           {hist.length>0&&step===0&&<button className="btn bs" onClick={()=>setStep(9)} style={{fontSize:12,padding:"6px 14px"}}>📋 {hist.length}</button>}
@@ -320,7 +383,8 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
       {step===0&&!loading&&(<div className="fi">
         {showOnb&&(<div style={{...Z.card,marginBottom:18,borderColor:C.gold+"22",position:"relative"}}>
           <button onClick={()=>{setShowOnb(false);LS.s("vmm_s5",true)}} style={{position:"absolute",top:10,right:12,background:"none",border:"none",color:C.t4,cursor:"pointer",fontSize:16}}>✕</button>
-          <p style={{color:C.gold,fontSize:15,fontWeight:600,marginBottom:12}}>Cách hoạt động</p>
+          <p style={{color:C.gold,fontSize:15,fontWeight:600,marginBottom:4}}>Cách hoạt động</p>
+          <p style={{color:C.t4,fontSize:11.5,marginBottom:12}}>Tạo bài hát tiếng Việt MỚI lấy cảm hứng từ bài gốc — giữ nhịp & số âm tiết, không phải bản cover</p>
           <div className="onb-g" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,textAlign:"center"}}>
             {[{i:"🔍",t:"Tìm / paste lyrics",d:"AI tìm hoặc bạn paste chính xác"},{i:"🎛",t:"Chọn style",d:"Genre, mood, tempo, giọng"},{i:"✍",t:"AI viết lời Việt",d:"Giữ nhịp vần, sửa từng câu"},{i:"🎵",t:"Copy → AI Music",d:"5 platforms, prompt riêng"}].map((x,i)=>
               <div key={i}><div style={{fontSize:24,marginBottom:4}}>{x.i}</div><p style={{color:C.t1,fontSize:13,fontWeight:600}}>{x.t}</p><p style={{color:C.t3,fontSize:12,lineHeight:1.4,marginTop:3}}>{x.d}</p></div>)}
@@ -332,29 +396,65 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
         </div>
         {!pasteMode?(<>
           <div style={{display:"flex",gap:8}}>
-            <input style={{...Z.inp,flex:1,fontSize:15,padding:"12px 16px"}} placeholder={mode==="foreign"?'"Die With A Smile - Lady Gaga"':'"Waiting For You - MONO"'} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSearch()}/>
+            <input style={{...Z.inp,flex:1,fontSize:15,padding:"12px 16px"}} placeholder={mode==="foreign"?'Tên bài, hoặc "nhạc Trung buồn", "K-pop hay"...':'Tên bài, hoặc "ballad Việt hay nhất"...'} value={q} onChange={e=>{setQ(e.target.value);if(suggestions)setSuggestions(null)}} onKeyDown={e=>e.key==="Enter"&&handleSearch()}/>
             <button className="btn bp" onClick={handleSearch} disabled={loading||!q.trim()} style={{fontSize:14}}>Tìm</button>
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
             {!ak?<p style={{color:"#f87171",fontSize:12.5,cursor:"pointer",fontWeight:500}} onClick={()=>setShowSet(true)}>⚠ Bấm vào đây để nhập API key (miễn phí)</p>:<span/>}
             <button onClick={()=>setPasteMode(true)} style={{background:"none",border:"none",color:C.t3,fontSize:12.5,cursor:"pointer",textDecoration:"underline",padding:"4px 0"}}>Hoặc paste lyrics chính xác →</button>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
-            {(mode==="foreign"?["Die With A Smile - Lady Gaga","Perfect - Ed Sheeran","Glimpse of Us - Joji","Cupid - FIFTY FIFTY","Dandelions - Ruth B","APT - ROSÉ","Unstoppable - Sia","Night Changes - One Direction"]:["Waiting For You - MONO","Có chắc yêu là đây - Sơn Tùng","See tình - Hoàng Thuỳ Linh","Lạc trôi - Sơn Tùng","Ngày đầu tiên - Đức Phúc"]).map(x=><button key={x} className="pill" onClick={()=>setQ(x)}>{x}</button>)}
-          </div>
-          <div style={{marginTop:28,paddingTop:18,borderTop:`1px solid ${C.border}`}}>
-            <p style={{color:C.t2,fontSize:14,fontWeight:600,marginBottom:12}}>5 AI Music Platforms — mỗi bài tạo prompt riêng</p>
-            <div className="pg" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {PLATS.map(p=>(<a key={p.id} href={p.url} target="_blank" rel="noopener" style={{...Z.card,padding:14,borderColor:p.color+"22",textDecoration:"none",display:"block",transition:"border .12s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=p.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=p.color+"22"}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                  <span>{p.icon} <span style={{color:p.color,fontWeight:600,fontSize:13.5}}>{p.name}</span>{p.vocal?<span style={{fontSize:10,color:"#34d399",marginLeft:4}}>🎤</span>:<span style={{fontSize:10,color:"#fbbf24",marginLeft:4}}>🎹</span>}</span>
-                  <span style={{color:C.t4,fontSize:11,background:C.bg2,padding:"3px 8px",borderRadius:8}}>{p.free}</span>
-                </div>
-                <p style={{color:C.t3,fontSize:12,lineHeight:1.4,marginBottom:6}}>{p.desc}</p>
-                <div style={{background:C.bg1,borderRadius:6,padding:8}}><pre style={{fontSize:11,lineHeight:1.4,color:p.color+"88",whiteSpace:"pre-wrap",fontFamily:"'DM Sans',sans-serif"}}>{p.exP}</pre></div>
-              </a>))}
+
+          {/* Suggestions result */}
+          {suggestions&&suggestions.length>0&&(
+            <div className="fi" style={{marginTop:16}}>
+              <p style={{color:C.gold,fontSize:14,fontWeight:600,marginBottom:10}}>Chọn bài để bắt đầu:</p>
+              <div className="pg" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {suggestions.map((s,i)=>{
+                  const langColors={Chinese:"#ef4444",Korean:"#a78bfa",English:"#60a5fa",Japanese:"#f87171",Vietnamese:"#34d399"};
+                  const lc=langColors[s.lang]||C.t3;
+                  return(<div key={i} style={{...Z.card,padding:12,cursor:"pointer",transition:"all .12s",borderColor:"transparent"}}
+                    onClick={()=>handlePick(s)} onMouseEnter={e=>e.currentTarget.style.borderColor=C.gold+"44"} onMouseLeave={e=>e.currentTarget.style.borderColor="transparent"}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",marginBottom:4}}>
+                      <div>
+                        <p style={{color:C.t1,fontSize:13.5,fontWeight:600}}>{s.title}</p>
+                        <p style={{color:C.t3,fontSize:12}}>{s.artist}{s.year?` · ${s.year}`:""}</p>
+                      </div>
+                      <span style={{color:lc,fontSize:10.5,background:lc+"15",padding:"2px 8px",borderRadius:10,whiteSpace:"nowrap"}}>{s.lang||s.genre}</span>
+                    </div>
+                    <p style={{color:C.t4,fontSize:12,lineHeight:1.4}}>{s.desc}</p>
+                  </div>)})}
+              </div>
+              <button className="btn bs" onClick={()=>setSuggestions(null)} style={{marginTop:8,fontSize:12}}>← Tìm lại</button>
             </div>
-          </div>
+          )}
+
+          {/* Quick explore + exact songs + platforms — hide when showing suggestions */}
+          {!suggestions&&(<>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:14}}>
+              <span style={{color:C.t4,fontSize:12,lineHeight:"34px"}}>Khám phá:</span>
+              {(mode==="foreign"
+                ?["nhạc Trung hay về tình yêu","K-pop buồn nhất","nhạc Nhật chill","English sad love songs","nhạc Thái hay","ballad Hàn 2024"]
+                :["ballad Việt hay nhất","V-pop tình yêu buồn","rap Việt hot","nhạc Việt chill lo-fi"]
+              ).map(x=><button key={x} className="pill" onClick={()=>{setQ(x);setTimeout(()=>{searchFn.current?.()},100)}} style={{background:C.bg2}}>{x}</button>)}
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+              <span style={{color:C.t4,fontSize:12,lineHeight:"34px"}}>Bài cụ thể:</span>
+              {(mode==="foreign"?["Die With A Smile - Lady Gaga","Perfect - Ed Sheeran","Glimpse of Us - Joji","Cupid - FIFTY FIFTY","Dandelions - Ruth B","APT - ROSÉ"]:["Waiting For You - MONO","Có chắc yêu là đây - Sơn Tùng","See tình - Hoàng Thuỳ Linh","Lạc trôi - Sơn Tùng"]).map(x=><button key={x} className="pill" onClick={()=>setQ(x)}>{x}</button>)}
+            </div>
+            <div style={{marginTop:28,paddingTop:18,borderTop:`1px solid ${C.border}`}}>
+              <p style={{color:C.t2,fontSize:14,fontWeight:600,marginBottom:12}}>5 AI Music Platforms — mỗi bài tạo prompt riêng</p>
+              <div className="pg" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {PLATS.map(p=>(<a key={p.id} href={p.url} target="_blank" rel="noopener" style={{...Z.card,padding:14,borderColor:p.color+"22",textDecoration:"none",display:"block",transition:"border .12s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=p.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=p.color+"22"}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                    <span>{p.icon} <span style={{color:p.color,fontWeight:600,fontSize:13.5}}>{p.name}</span>{p.vocal?<span style={{fontSize:10,color:"#34d399",marginLeft:4}}>🎤</span>:<span style={{fontSize:10,color:"#fbbf24",marginLeft:4}}>🎹</span>}</span>
+                    <span style={{color:C.t4,fontSize:11,background:C.bg2,padding:"3px 8px",borderRadius:8}}>{p.free}</span>
+                  </div>
+                  <p style={{color:C.t3,fontSize:12,lineHeight:1.4,marginBottom:6}}>{p.desc}</p>
+                  <div style={{background:C.bg1,borderRadius:6,padding:8}}><pre style={{fontSize:11,lineHeight:1.4,color:p.color+"88",whiteSpace:"pre-wrap",fontFamily:"'DM Sans',sans-serif"}}>{p.exP}</pre></div>
+                </a>))}
+              </div>
+            </div>
+          </>)}
         </>):(<div className="fi">
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
             <p style={{color:C.gold,fontSize:14,fontWeight:600}}>Paste lyrics chính xác</p>
@@ -392,8 +492,8 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
           {song.confidence==="low"&&<div style={{background:"#fbbf2410",border:"1px solid #fbbf2422",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
             <p style={{color:"#fbbf24",fontSize:12.5}}>⚠ AI không chắc lyrics đúng. Bấm vào câu sai để sửa, hoặc <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:"#fbbf24",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'"}}>paste lại toàn bộ</button></p>
           </div>}
-          {song.confidence!=="low"&&song.confidence!=="manual"&&<div style={{background:C.gold+"08",border:`1px solid ${C.gold}15`,borderRadius:8,padding:"6px 12px",marginBottom:10}}>
-            <p style={{color:C.t3,fontSize:12}}>Bấm vào câu để sửa nếu sai. Hoặc <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:C.gold,textDecoration:"underline",cursor:"pointer",fontSize:12,fontFamily:"'DM Sans'"}}>paste lyrics thật</button></p>
+          {song.confidence!=="low"&&song.confidence!=="manual"&&<div style={{background:"#fbbf2410",border:"1px solid #fbbf2422",borderRadius:8,padding:"8px 12px",marginBottom:10}}>
+            <p style={{color:"#fbbf24",fontSize:12.5}}>⚠ Lyrics từ AI thường sai 30-50%. <strong>Khuyến khích:</strong> vào <a href="https://genius.com" target="_blank" rel="noopener" style={{color:"#fbbf24"}}>genius.com</a> copy lyrics thật → <button onClick={()=>{setPasteMode(true);setPasteLy(song.lyrics);setStep(0)}} style={{background:"none",border:"none",color:"#fbbf24",textDecoration:"underline",cursor:"pointer",fontSize:12.5,fontFamily:"'DM Sans'",fontWeight:600}}>paste vào đây</button></p>
           </div>}
           <div style={Z.lyBox}>
             {song.lyrics.split("\n").map((line,i)=>{const isSec=line.match(/^\[/);
