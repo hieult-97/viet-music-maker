@@ -16,7 +16,7 @@ const GENRE_GROUPS=[
   {name:"R&B/Soul",icon:"🌙",items:["R&B","Soul","Funk","Disco","Gospel"]},
   {name:"Rock",icon:"🤘",items:["Rock","Alternative","Indie","Metal","Punk"]},
   {name:"Jazz/Blues",icon:"🎷",items:["Jazz","Bossa Nova","Blues"]},
-  {name:"Khác",icon:"🌍",items:["Lo-fi","Reggaeton","Classical","Latin"]},
+  {name:"Khác",icon:"🌍",items:["Lo-fi","Reggaeton","Classical"]},
 ];
 const MOODS=["Buồn","Vui","Chill","Sâu lắng","Năng lượng","Lãng mạn","Cô đơn","Hy vọng","Dramatic","Dreamy","Dark","Nostalgic","Epic","Angry","Mysterious","Groovy","Peaceful","Playful","Bittersweet","Empowering"];
 const TEMPOS=["Very Slow (40-60)","Slow (60-80)","Medium (80-110)","Fast (110-140)","Very Fast (140+)"];
@@ -91,7 +91,30 @@ const GENRE_DEFAULTS={
   "Gospel":{ins:["Piano","Organ","Drums","Bass"],pr:"Live/Raw"},
 };
 const LS={g:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch{return d}},s:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
-const countSyl=t=>{if(!t||t.match(/^\[/)||t.match(/^\(/)||!t.trim())return 0;return t.trim().replace(/\([^)]*\)/g,"").replace(/[,.\-!?;:"""''…]/g,"").split(/\s+/).filter(Boolean).length};
+const countSyl=t=>{
+  if(!t||t.match(/^\[/)||t.match(/^\(/)||!t.trim())return 0;
+  const clean=t.trim().replace(/\([^)]*\)/g,"").replace(/[,.\-!?;:"""''…]/g,"");
+  // CJK: count characters (each char ≈ 1 syllable)
+  const cjk=clean.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g);
+  if(cjk&&cjk.length>clean.replace(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\s]/g,"").length)return cjk.length;
+  return clean.split(/\s+/).filter(Boolean).length;
+};
+
+// Clean dual-language lyrics (e.g. Chinese + English translation)
+const cleanDualLyrics=(lyrics)=>{
+  if(!lyrics)return lyrics;
+  const lines=lyrics.split("\n");
+  const hasCJK=l=>!!l.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/);
+  const hasLatin=l=>!!l.match(/[a-zA-Z]{3,}/);
+  // Count CJK vs Latin lines
+  let cjkCount=0,latinCount=0;
+  lines.forEach(l=>{if(l.match(/^\[/)||!l.trim())return;if(hasCJK(l))cjkCount++;if(hasLatin(l)&&!hasCJK(l))latinCount++});
+  // If roughly equal → it's dual-language, keep only CJK (original)
+  if(cjkCount>3&&latinCount>3&&Math.abs(cjkCount-latinCount)<=cjkCount*0.5){
+    return lines.filter(l=>l.match(/^\[/)||!l.trim()||hasCJK(l)||l.match(/^\(/)).join("\n");
+  }
+  return lyrics;
+};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const recPlat=(g,m)=>(g==="Hip-hop"||g==="EDM"||g==="Trap")?"suno":(m==="Chill"||g==="Lo-fi")?"udio":"suno";
 const bpmFrom=t=>t.includes("40")?50:t.includes("60")?70:t.includes("80")?95:t.includes("110")?125:150;
@@ -213,23 +236,22 @@ export default function App(){
     if(def){setInstr(def.ins);setProduction(def.pr)}
   },[genre]);
 
-  const toast=(msg,type="info")=>{const id=Date.now();setToasts(t=>[...t,{id,msg,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3200)};
+  const toast=(msg,type="info")=>{const id=Date.now();setToasts(t=>[...t,{id,msg,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),type==="err"||type==="warn"?5000:3200)};
 
   // Auto-detect genre, mood, tempo, vocal from song data
   const autoConfig=useCallback((p)=>{
-    // Genre
     const g=GENRES.find(g=>p.genre?.toLowerCase().includes(g.toLowerCase()));
     if(g){setGenre(g);const grp=GENRE_GROUPS.find(gr=>gr.items.includes(g));if(grp)setGenreGrp(grp.name)}
-    // Mood
     if(p.mood){const m=MOODS.find(m=>p.mood.toLowerCase().includes(m.toLowerCase()));if(m)setMood(m)}
-    // Tempo
-    if(p.tempo){
-      if(p.tempo==="slow")setTempo("Slow (60-80)");
-      else if(p.tempo==="medium")setTempo("Medium (80-110)");
-      else if(p.tempo==="fast")setTempo("Fast (110-140)");
-    }
+    if(p.tempo){if(p.tempo==="slow")setTempo("Slow (60-80)");else if(p.tempo==="medium")setTempo("Medium (80-110)");else if(p.tempo==="fast")setTempo("Fast (110-140)")}
     if(p.bpm&&p.bpm>0)setCustomBpm(String(p.bpm));
   },[]);
+
+  // Clean + set song + auto config
+  const loadSong=useCallback((p)=>{
+    const cleaned={...p,lyrics:cleanDualLyrics(p.lyrics)};
+    setSong(cleaned);autoConfig(cleaned);
+  },[autoConfig]);
 
   useEffect(()=>{if(!loading)return;const ms=["Đang tìm lyrics...","Phân tích cấu trúc...","Viết lời Việt giữ vần...","Tạo prompt 5 platforms..."];
     let i=0;setLoadMsg(ms[0]);const iv=setInterval(()=>{i=(i+1)%ms.length;setLoadMsg(ms[i])},2500);return()=>clearInterval(iv)},[loading]);
@@ -247,50 +269,47 @@ export default function App(){
     };window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
 
   const callAI=useCallback(async(sys,usr,retries=2,useSearch=false)=>{
-    const provCfg=PROVS.find(p=>p.id===prov);
-    for(let a=0;a<=retries;a++){try{
-      if(provCfg.type==="gemini"){
+    // Inner function that tries a specific provider
+    const tryProv=async(pid)=>{
+      const cfg=PROVS.find(p=>p.id===pid);
+      const key=keys[pid]||"";
+      if(!key)throw new Error(`Chưa có API key cho ${cfg.name}`);
+      if(cfg.type==="gemini"){
         const body={contents:[{parts:[{text:`${sys}\n\n${usr}`}]}],generationConfig:{temperature:0.7,maxOutputTokens:4096}};
         if(useSearch)body.tools=[{google_search:{}}];
-        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${ak}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+        const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         const d=await r.json();
-        if(d.error){
-          const msg=d.error.message||"";
-          if(msg.includes("Quota exceeded")||msg.includes("rate")||msg.includes("429")){
-            // Find another provider with key
-            const alt=PROVS.find(p=>p.id!==prov&&keys[p.id]);
-            if(alt){
-              toast(`${provCfg.name} hết quota. Đổi sang ${alt.name}...`,"warn");
-              setProv(alt.id);LS.s("vmm_p",alt.id);
-              throw new Error(`Hết quota ${provCfg.name} — đã đổi sang ${alt.name}. Bấm lại.`);
-            }
-            throw new Error(`Hết quota ${provCfg.name}. Vào ⚙ thêm API key khác (Groq, Cerebras...)`);
-          }
-          throw new Error(msg.substring(0,100));
-        }
+        if(d.error)throw{message:d.error.message||"",isQuota:!!(d.error.message||"").match(/quota|rate|429/i)};
         const parts=d.candidates?.[0]?.content?.parts||[];
         return parts.map(p=>p.text||"").join("\n");
       }
-      // OpenAI-compatible: Groq, Cerebras, SambaNova, OpenRouter
-      const headers={"Content-Type":"application/json",Authorization:`Bearer ${ak}`};
-      if(provCfg.id==="openrouter")headers["HTTP-Referer"]="https://viet-music-maker.vercel.app";
-      const r=await fetch(provCfg.url,{method:"POST",headers,body:JSON.stringify({model:provCfg.model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:0.7,max_tokens:4096})});
+      const headers={"Content-Type":"application/json",Authorization:`Bearer ${key}`};
+      if(cfg.id==="openrouter")headers["HTTP-Referer"]="https://viet-music-maker.vercel.app";
+      const r=await fetch(cfg.url,{method:"POST",headers,body:JSON.stringify({model:cfg.model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:0.7,max_tokens:4096})});
       const d=await r.json();
-      if(d.error){
-        const msg=d.error?.message||JSON.stringify(d.error);
-        if(msg.includes("rate")||msg.includes("limit")||msg.includes("429")||msg.includes("quota")){
+      if(d.error){const msg=d.error?.message||JSON.stringify(d.error);throw{message:msg,isQuota:!!msg.match(/rate|limit|429|quota/i)}}
+      return d.choices[0].message.content;
+    };
+
+    // Try current provider, auto-fallback on quota
+    for(let a=0;a<=retries;a++){
+      try{return await tryProv(prov)}
+      catch(e){
+        if(e.isQuota){
+          // Find alt provider with key and auto-retry immediately
           const alt=PROVS.find(p=>p.id!==prov&&keys[p.id]);
           if(alt){
-            toast(`${provCfg.name} hết limit. Đổi sang ${alt.name}...`,"warn");
+            toast(`${PROVS.find(p=>p.id===prov)?.name} hết quota → tự đổi ${alt.name}`,"warn");
             setProv(alt.id);LS.s("vmm_p",alt.id);
-            throw new Error(`Hết limit ${provCfg.name} — đã đổi sang ${alt.name}. Bấm lại.`);
+            try{return await tryProv(alt.id)}catch(e2){throw new Error(e2.message?.substring?.(0,100)||"Lỗi")}
           }
-          throw new Error(`Hết limit ${provCfg.name}. Vào ⚙ thêm API key khác`);
+          throw new Error(`Hết quota. Vào ⚙ thêm API key khác`);
         }
-        throw new Error(msg.substring(0,100));
+        const msg=e.message?.substring?.(0,100)||"Lỗi AI";
+        if(a<retries){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}
+        throw new Error(msg);
       }
-      return d.choices[0].message.content;
-    }catch(e){if(a<retries&&!e.message.includes("Hết quota")&&!e.message.includes("Hết limit")&&!e.message.includes("đã đổi")){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}throw e}}
+    }
   },[prov,ak,keys]);
 
   const pJ=raw=>{const c=raw.replace(/```json|```/g,"").trim();const m=c.match(/\{[\s\S]*\}/);if(!m)throw new Error("AI trả sai format, thử lại");try{return JSON.parse(m[0])}catch{const fixed=m[0].replace(/"((?:[^"\\]|\\.)*)"/g,(match)=>match.replace(/[\x00-\x1f]/g,ch=>ch==="\n"?"\\n":ch==="\r"?"\\r":ch==="\t"?"\\t":""));return JSON.parse(fixed)}};
@@ -401,26 +420,35 @@ Gợi ý 6 bài hát phù hợp nhất. Đa dạng ca sĩ/năm. CHỈ trả JSON
           meta={...meta,...pJ(mRaw)};
         }catch{}
         const songData={title:lrc.title,artist:lrc.artist,lyrics:lrc.lyrics,genre:meta.genre,mood:meta.mood,tempo:meta.tempo,bpm:meta.bpm,key:meta.key,instruments:meta.instruments,confidence:"lrclib",source:"lrclib"};
-        setSong(songData);autoConfig(songData);setStep(1);
+        loadSong(songData);setStep(1);
         toast("✓ Lyrics thật từ lrclib.net","ok");
         setLoading(false);return;
       }
 
       // lrclib not found → fall back to AI
-      setLoadMsg("lrclib không có → tìm bằng AI...");
+      setLoadMsg("Tìm bằng AI...");
       const raw=await callAI(
-`Chuyên gia âm nhạc. TÌM KIẾM lyrics CHÍNH XÁC.
-CHỈ JSON. Nếu KHÔNG TÌM THẤY: {"error":"Không tìm thấy"}. KHÔNG tự bịa.`,
-`Tìm lyrics: "${q}"
-JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][Bridge]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"Am","instruments":"","confidence":"high/low","note":""}`,
+`Chuyên gia âm nhạc. TÌM KIẾM lyrics bài hát ĐÚNG TÊN được yêu cầu.
+CHỈ JSON. Nếu KHÔNG TÌM THẤY ĐÚNG BÀI NÀY: {"error":"Không tìm thấy"}.
+KHÔNG trả bài khác. KHÔNG bịa lyrics.`,
+`Tìm lyrics CHÍNH XÁC bài: "${q}"
+JSON:{"title":"tên CHÍNH XÁC bài được yêu cầu","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][Bridge]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"","instruments":"","confidence":"high/low"}`,
       2, true);
       const p=pJ(raw);
       if(p.error){toast("Không tìm thấy — thử paste thủ công","warn");setLoading(false);return}
-      setSong(p);autoConfig(p);setStep(1);
+      // Check if AI returned the right song (not a different one)
+      const qLow=q.toLowerCase().replace(/[^a-zà-ỹ0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g,"");
+      const tLow=(p.title||"").toLowerCase().replace(/[^a-zà-ỹ0-9\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g,"");
+      if(tLow&&qLow&&!qLow.includes(tLow.substring(0,5))&&!tLow.includes(qLow.substring(0,5))){
+        // AI returned a different song entirely
+        toast(`AI trả bài "${p.title}" — không đúng bài bạn tìm. Nên paste lyrics thật.`,"warn");
+        setPasteMode(true);setPasteLy("");setLoading(false);return;
+      }
+      loadSong(p);setStep(1);
       if(p.confidence==="low")toast("Lyrics có thể sai — nên kiểm tra","warn");
       else toast("Tìm thấy (AI)","ok");
     }catch(e){toast(e.message,"err")}setLoading(false);
-  },[q,ak,callAI,isSpecificQuery,fetchRealLyrics,autoConfig]);
+  },[q,ak,callAI,isSpecificQuery,fetchRealLyrics,loadSong]);
 
   // Pick a suggestion → try lrclib first, then AI, then paste
   const handlePick=useCallback(async(s)=>{
@@ -435,18 +463,21 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
         let meta={genre:s.genre||"",mood:s.mood||"",tempo:"medium",bpm:100,key:"",instruments:""};
         try{const mRaw=await callAI("CHỈ JSON.",`Bài "${s.title}" - ${s.artist}. JSON:{"genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"","instruments":""}`);meta={...meta,...pJ(mRaw)};}catch{}
         const songData={title:lrc.title||s.title,artist:lrc.artist||s.artist,lyrics:lrc.lyrics,...meta,confidence:"lrclib",source:"lrclib"};
-        setSong(songData);autoConfig(songData);setStep(1);toast("✓ Lyrics thật từ lrclib","ok");setLoading(false);return;
+        loadSong(songData);setStep(1);toast("✓ Lyrics thật từ lrclib","ok");setLoading(false);return;
       }
       // lrclib fail → AI
-      setLoadMsg("lrclib không có → AI...");
-      const raw=await callAI("CHỈ JSON. Nếu KHÔNG TÌM THẤY: {\"error\":\"x\"}. KHÔNG bịa.",
-        `Tìm lyrics: "${s.title}" - ${s.artist}\nJSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse][Chorus]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"","instruments":"","confidence":"high/low"}`,2,true);
+      setLoadMsg("AI tìm...");
+      const raw=await callAI("CHỈ JSON. Nếu KHÔNG TÌM THẤY ĐÚNG BÀI: {\"error\":\"x\"}. KHÔNG trả bài khác.",
+        `Tìm lyrics CHÍNH XÁC: "${s.title}" - ${s.artist}\nJSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse][Chorus]","genre":"","mood":"","tempo":"slow/medium/fast","bpm":120,"key":"","instruments":"","confidence":"high/low"}`,2,true);
       const p=pJ(raw);
-      if(p.error||!p.lyrics||p.lyrics.length<50){setPasteMode(true);setPasteLy("");setLoading(false);toast(`Không tìm được lyrics — paste thủ công`,"warn");return}
-      setSong(p);autoConfig(p);setStep(1);toast("Tìm được (AI)","ok");
+      // Check AI returned right song
+      const sLow=(s.title||"").toLowerCase().substring(0,5);
+      const pLow=(p.title||"").toLowerCase();
+      if(p.error||!p.lyrics||p.lyrics.length<50||(sLow&&pLow&&!pLow.includes(sLow))){setPasteMode(true);setPasteLy("");setLoading(false);toast(`Không tìm được lyrics chính xác — paste thủ công`,"warn");return}
+      loadSong(p);setStep(1);toast("Tìm được (AI)","ok");
     }catch(e){setPasteMode(true);setPasteLy("");toast("Lỗi — paste thủ công","warn")}
     setLoading(false);
-  },[ak,callAI,fetchRealLyrics,autoConfig]);
+  },[ak,callAI,fetchRealLyrics,loadSong]);
 
   useEffect(()=>{searchFn.current=handleSearch},[handleSearch]);
 
@@ -471,29 +502,41 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
 
     try{
     setLoadMsg("Viết lời Việt (~10s)...");
-    const lRaw=await callAI(`Bạn là nhạc sĩ Việt Nam chuyên nghiệp. Nhiệm vụ: viết lời Việt cho bài hát, giữ ĐÚNG số âm tiết từng câu. CHỈ trả JSON.`,
+    const lRaw=await callAI(`Bạn là nhạc sĩ Việt Nam chuyên nghiệp, viết lời bài hát có HỒN, có CẢM XÚC, HÁT ĐƯỢC. CHỈ trả JSON.`,
 `${task}: "${song.title}"${song.artist?" - "+song.artist:""}
 Thể loại: ${genre} | Mood: ${mood} | ${bpm}BPM | Vocal: ${vocal}
 Nhạc cụ: ${instrStr} | Production: ${production}
 ${notes?`Yêu cầu thêm: ${notes}`:""}
 
-LYRICS GỐC + SỐ ÂM TIẾT TỪNG DÒNG (BẮT BUỘC KHỚP):
+LYRICS GỐC + SỐ ÂM TIẾT TỪNG DÒNG:
 ${sylGuide}
 
-QUY TẮC:
-1. MỖI CÂU VIỆT PHẢI CÓ ĐÚNG SỐ ÂM TIẾT như chỉ định ở trên (sai lệch tối đa ±1)
-2. Vần cuối câu tự nhiên — vần liền hoặc vần cách
-3. Lời phải HÁT ĐƯỢC — không dùng từ khó phát âm, không dùng từ Hán Việt nặng
-4. Giữ cảm xúc/theme chính của bài gốc, KHÔNG cần dịch sát nghĩa
-5. KHÔNG viết (em) (anh) hoặc tag trong câu lyrics. Lyrics là lời hát thuần tuý
-6. Section markers [Verse 1] [Chorus] etc. trên dòng riêng
-7. Hướng dẫn giọng nếu cần: đặt trên dòng riêng (Nhẹ nhàng), (Mạnh mẽ)
+ƯU TIÊN (theo thứ tự):
+1. LỜI PHẢI CÓ Ý NGHĨA — mỗi câu là 1 câu hoàn chỉnh, kể được câu chuyện. TUYỆT ĐỐI KHÔNG viết mấy từ rời rạc như "Tình yêu, quá nặng" hay "Gọi tên, gọi lại" — đây là fragments, KHÔNG phải lyrics
+2. HÁT ĐƯỢC — đọc thành tiếng, nghe như bài hát thật, không ngượng ngùng. Dùng ngôn ngữ tự nhiên như cách người Việt nói chuyện
+3. SỐ ÂM TIẾT khớp gốc ±2 (cố gắng khớp nhưng KHÔNG hy sinh ý nghĩa vì đếm âm tiết)
+4. VẦN tự nhiên cuối câu
+5. Giữ cảm xúc/theme bài gốc
 
-VÍ DỤ ĐÚNG:
-Gốc: "When I look into your eyes" (7) → Việt: "Khi anh nhìn vào đôi mắt em" (7) ✓
-Gốc: "I see the universe" (5) → Việt: "Thấy cả bầu trời" (4) ✗ SAI — phải 5: "Anh thấy cả trời sao" (5) ✓
+QUY TẮC CỨNG:
+- KHÔNG viết (em) (anh) hoặc tag trong câu lyrics
+- KHÔNG lẫn tiếng Anh vào lời Việt
+- Section markers [Verse 1] [Chorus] etc. trên dòng riêng
+- Tiếng Trung/Nhật/Hàn: mỗi ký tự = 1 âm tiết
 
-JSON: {"title":"tên Việt","lyrics":"full lyrics có section markers, KHÔNG có số âm tiết, CHỈ lời hát"}`);
+VÍ DỤ TỐT (câu hoàn chỉnh, có ý nghĩa):
+"未だに感じてるのに" (9) → "Dù thời gian qua anh vẫn nhớ" (8) ✓ — câu hoàn chỉnh, cảm xúc rõ
+"When I look into your eyes" (7) → "Khi anh nhìn vào đôi mắt em" (7) ✓
+"I can't stop thinking about you" (7) → "Lòng anh không thể nào quên được" (7) ✓
+
+VÍ DỤ SAI (TUYỆT ĐỐI KHÔNG VIẾT THẾ NÀY):
+❌ "Tình yêu, quá nặng" — fragment, không phải câu hát
+❌ "Gọi tên, gọi lại" — fragment, không có context
+❌ "Mắt, mũi, môi" — liệt kê, không phải lyrics
+❌ "Trông mong, lúc đó" — fragment
+✅ PHẢI viết: "Tình yêu này nặng quá em ơi" — câu hoàn chỉnh, hát được
+
+JSON: {"title":"tên Việt hay, sáng tạo","lyrics":"full lyrics có section markers, CHỈ lời hát, mỗi câu là câu hoàn chỉnh"}`);
     const lR=pJ(lRaw);
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
     const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,instr,production,customBpm);
@@ -520,11 +563,19 @@ JSON: {"title":"tên Việt","lyrics":"full lyrics có section markers, KHÔNG c
     if(!viet||!ak)return;setRegenSec(sec);try{
       const origLines=song.lyrics.split("\n");let origSec="";let inS=false;
       origLines.forEach(l=>{if(l.toLowerCase().includes(`[${sec.toLowerCase()}`)){inS=true;origSec+=l+"\n"}else if(inS&&l.match(/^\[/))inS=false;else if(inS)origSec+=l+"\n"});
-      const raw=await callAI("Nhạc sĩ. CHỈ lyrics mới, KHÔNG giải thích.",
-`Viết lại [${sec}] bài "${viet.title}"(${genre},${mood},${vocal}).
-Phần gốc (đếm âm tiết): ${origSec||"N/A"}
+      const raw=await callAI("Nhạc sĩ Việt chuyên nghiệp. Viết lời CÓ HỒN, HÁT ĐƯỢC. CHỈ trả lyrics, KHÔNG giải thích.",
+`Viết lại phần [${sec}] bài "${viet.title}" (${genre}, ${mood}, ${vocal}).
+Phần gốc gốc tham khảo: ${origSec||"N/A"}
 Bài hiện tại:\n${viet.lyrics}
-CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.`);
+
+QUY TẮC:
+- Mỗi câu phải là CÂU HOÀN CHỈNH, có ý nghĩa, hát được
+- KHÔNG viết fragments như "Tình yêu, quá nặng" hay "Gọi tên, gọi lại"
+- Vần tự nhiên cuối câu
+- Số âm tiết ≈ phần gốc (±2)
+- 100% tiếng Việt, KHÔNG lẫn tiếng Anh
+
+CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải thích.`);
       setUndos(u=>[...u,viet.lyrics]);
       const lines=viet.lyrics.split("\n");let si=-1,ei=-1;let inSec=false;
       lines.forEach((l,i)=>{if(l.toLowerCase().includes(`[${sec.toLowerCase()}`)){inSec=true;si=i}else if(inSec&&l.match(/^\[/)&&i>si){ei=i;inSec=false}});
