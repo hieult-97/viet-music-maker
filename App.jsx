@@ -1,22 +1,28 @@
-\import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 const PROVS=[
   {id:"groq",name:"Groq",url:"https://api.groq.com/openai/v1/chat/completions",model:"llama-3.3-70b-versatile",keyUrl:"https://console.groq.com/keys",ph:"gsk_...",desc:"Nhanh nhất · 30 req/phút"},
   {id:"gemini",name:"Gemini",url:"GEM",model:"gemini-2.0-flash",keyUrl:"https://aistudio.google.com/apikey",ph:"AIza...",desc:"Google · 15 req/phút"},
 ];
-const GENRES=["Pop","Ballad","R&B","Hip-hop","EDM","Acoustic","Rock","Jazz","Lo-fi","Indie","Trap","Latin","Funk","Soul"];
-const MOODS=["Buồn","Vui","Chill","Sâu lắng","Năng lượng","Lãng mạn","Cô đơn","Hy vọng","Dramatic","Dreamy","Dark","Nostalgic"];
-const TEMPOS=["Slow (60-80)","Medium (80-110)","Fast (110-140)","Very Fast (140+)"];
-const VOCALS=["Nam trầm","Nam cao","Nữ nhẹ","Nữ khoẻ","Rap","Whisper","Falsetto","Duet"];
+const GENRES=["Pop","K-pop","Synth Pop","Dance Pop","Ballad","R&B","Hip-hop","Trap","Phonk","EDM","House","Future Bass","Dubstep","Ambient","Rock","Alternative","Indie","Metal","Punk","Acoustic","Folk","Country","Singer-songwriter","Jazz","Bossa Nova","Lo-fi","Synthwave","Disco","Funk","Soul","Blues","Reggaeton","Classical","Gospel"];
+const MOODS=["Buồn","Vui","Chill","Sâu lắng","Năng lượng","Lãng mạn","Cô đơn","Hy vọng","Dramatic","Dreamy","Dark","Nostalgic","Epic","Angry","Mysterious","Groovy","Peaceful","Playful","Bittersweet","Empowering"];
+const TEMPOS=["Very Slow (40-60)","Slow (60-80)","Medium (80-110)","Fast (110-140)","Very Fast (140+)"];
+const VOCALS=["Nam trầm","Nam cao","Nữ nhẹ","Nữ khoẻ","Rap","Whisper","Falsetto","Duet","Choir","Auto-tune","Growl","Opera"];
+const INSTRUMENTS=["Piano","Acoustic Guitar","Electric Guitar","Bass","Drums","Strings","Synth","Violin","Cello","Saxophone","Trumpet","Flute","Ukulele","Organ","Harp","Percussion","Beat Machine","808","Pad/Ambient","Brass Section"];
+const PRODUCTIONS=["Studio polished","Lo-fi/Bedroom","Live/Raw","Orchestral","Minimalist","Vintage/Retro","Cinematic","Heavy bass"];
 const PRESETS=[
-  {name:"Ballad buồn",icon:"🥀",g:"Ballad",m:"Buồn",t:"Slow (60-80)",v:"Nam cao"},
-  {name:"Pop năng lượng",icon:"⚡",g:"Pop",m:"Năng lượng",t:"Fast (110-140)",v:"Nữ khoẻ"},
-  {name:"Lo-fi chill",icon:"☕",g:"Lo-fi",m:"Chill",t:"Slow (60-80)",v:"Nam trầm"},
-  {name:"R&B lãng mạn",icon:"🌙",g:"R&B",m:"Lãng mạn",t:"Medium (80-110)",v:"Nam cao"},
-  {name:"EDM festival",icon:"🎆",g:"EDM",m:"Năng lượng",t:"Very Fast (140+)",v:"Nữ khoẻ"},
-  {name:"Acoustic sâu lắng",icon:"🍂",g:"Acoustic",m:"Sâu lắng",t:"Slow (60-80)",v:"Nữ nhẹ"},
-  {name:"Hip-hop Việt",icon:"🔥",g:"Hip-hop",m:"Năng lượng",t:"Fast (110-140)",v:"Rap"},
-  {name:"Indie dreamy",icon:"✨",g:"Indie",m:"Dreamy",t:"Medium (80-110)",v:"Nữ nhẹ"},
+  {name:"Ballad buồn",icon:"🥀",g:"Ballad",m:"Buồn",t:"Slow (60-80)",v:"Nam cao",ins:["Piano","Strings"],pr:"Studio polished"},
+  {name:"Pop năng lượng",icon:"⚡",g:"Pop",m:"Năng lượng",t:"Fast (110-140)",v:"Nữ khoẻ",ins:["Synth","Drums","Bass"],pr:"Studio polished"},
+  {name:"Lo-fi chill",icon:"☕",g:"Lo-fi",m:"Chill",t:"Slow (60-80)",v:"Nam trầm",ins:["Piano","Pad/Ambient","Drums"],pr:"Lo-fi/Bedroom"},
+  {name:"R&B lãng mạn",icon:"🌙",g:"R&B",m:"Lãng mạn",t:"Medium (80-110)",v:"Nam cao",ins:["Piano","Bass","Synth"],pr:"Studio polished"},
+  {name:"EDM festival",icon:"🎆",g:"EDM",m:"Năng lượng",t:"Very Fast (140+)",v:"Nữ khoẻ",ins:["Synth","808","Beat Machine"],pr:"Heavy bass"},
+  {name:"Acoustic sâu lắng",icon:"🍂",g:"Acoustic",m:"Sâu lắng",t:"Slow (60-80)",v:"Nữ nhẹ",ins:["Acoustic Guitar","Strings","Percussion"],pr:"Live/Raw"},
+  {name:"Hip-hop Việt",icon:"🔥",g:"Hip-hop",m:"Năng lượng",t:"Fast (110-140)",v:"Rap",ins:["808","Beat Machine","Synth"],pr:"Heavy bass"},
+  {name:"Indie dreamy",icon:"✨",g:"Indie",m:"Dreamy",t:"Medium (80-110)",v:"Nữ nhẹ",ins:["Electric Guitar","Synth","Drums"],pr:"Lo-fi/Bedroom"},
+  {name:"K-pop catchy",icon:"💫",g:"K-pop",m:"Vui",t:"Fast (110-140)",v:"Duet",ins:["Synth","Drums","Bass","Strings"],pr:"Studio polished"},
+  {name:"Synthwave retro",icon:"🌆",g:"Synthwave",m:"Nostalgic",t:"Medium (80-110)",v:"Auto-tune",ins:["Synth","808","Pad/Ambient"],pr:"Vintage/Retro"},
+  {name:"Rock mạnh mẽ",icon:"🤘",g:"Rock",m:"Angry",t:"Fast (110-140)",v:"Growl",ins:["Electric Guitar","Drums","Bass"],pr:"Live/Raw"},
+  {name:"Classical epic",icon:"🎻",g:"Classical",m:"Epic",t:"Slow (60-80)",v:"Choir",ins:["Strings","Piano","Brass Section","Percussion"],pr:"Orchestral"},
 ];
 const STEPS=[{n:"Tìm bài",i:"🔍"},{n:"Tuỳ chỉnh",i:"🎛"},{n:"Lời Việt",i:"✍"},{n:"AI Music",i:"🎵"}];
 const PLATS=[
@@ -27,11 +33,49 @@ const PLATS=[
   {id:"riffusion",name:"Riffusion",url:"https://www.riffusion.com",free:"Free",color:"#f87171",icon:"🎸",vocal:true,desc:"Nhanh. Thử ý tưởng.",how:"Prompt ngắn + lyrics ngắn",exP:"Vietnamese pop ballad, male vocal, piano, 85bpm"},
 ];
 const C={bg1:"#0f1117",bg2:"#1c2030",card:"#171a25",border:"#2e3448",gold:"#e8d5b7",t1:"#eaedf3",t2:"#b8bcc8",t3:"#8b91a0",t4:"#6b7280"};
+
+// Auto-suggest instruments + production based on genre
+const GENRE_DEFAULTS={
+  "Pop":{ins:["Synth","Drums","Bass","Acoustic Guitar"],pr:"Studio polished"},
+  "K-pop":{ins:["Synth","Drums","Bass","Strings","Beat Machine"],pr:"Studio polished"},
+  "Synth Pop":{ins:["Synth","Drums","Bass","Pad/Ambient"],pr:"Studio polished"},
+  "Dance Pop":{ins:["Synth","Drums","Bass","Beat Machine"],pr:"Studio polished"},
+  "Ballad":{ins:["Piano","Strings","Acoustic Guitar"],pr:"Studio polished"},
+  "R&B":{ins:["Piano","Bass","Synth","Drums"],pr:"Studio polished"},
+  "Hip-hop":{ins:["808","Beat Machine","Synth","Bass"],pr:"Heavy bass"},
+  "Trap":{ins:["808","Beat Machine","Synth","Percussion"],pr:"Heavy bass"},
+  "Phonk":{ins:["808","Synth","Beat Machine","Percussion"],pr:"Heavy bass"},
+  "EDM":{ins:["Synth","808","Beat Machine","Drums"],pr:"Studio polished"},
+  "House":{ins:["Synth","Drums","Bass","Pad/Ambient"],pr:"Studio polished"},
+  "Future Bass":{ins:["Synth","808","Pad/Ambient","Drums"],pr:"Studio polished"},
+  "Dubstep":{ins:["Synth","808","Bass","Beat Machine"],pr:"Heavy bass"},
+  "Ambient":{ins:["Pad/Ambient","Synth","Piano","Strings"],pr:"Minimalist"},
+  "Rock":{ins:["Electric Guitar","Drums","Bass"],pr:"Live/Raw"},
+  "Alternative":{ins:["Electric Guitar","Drums","Bass","Synth"],pr:"Studio polished"},
+  "Indie":{ins:["Electric Guitar","Drums","Synth","Acoustic Guitar"],pr:"Lo-fi/Bedroom"},
+  "Metal":{ins:["Electric Guitar","Drums","Bass"],pr:"Live/Raw"},
+  "Punk":{ins:["Electric Guitar","Drums","Bass"],pr:"Live/Raw"},
+  "Acoustic":{ins:["Acoustic Guitar","Percussion","Strings"],pr:"Live/Raw"},
+  "Folk":{ins:["Acoustic Guitar","Violin","Flute","Percussion"],pr:"Live/Raw"},
+  "Country":{ins:["Acoustic Guitar","Violin","Bass","Drums"],pr:"Live/Raw"},
+  "Singer-songwriter":{ins:["Acoustic Guitar","Piano"],pr:"Minimalist"},
+  "Jazz":{ins:["Piano","Bass","Drums","Saxophone"],pr:"Live/Raw"},
+  "Bossa Nova":{ins:["Acoustic Guitar","Piano","Bass","Percussion"],pr:"Vintage/Retro"},
+  "Lo-fi":{ins:["Piano","Pad/Ambient","Drums","Vinyl Crackle"],pr:"Lo-fi/Bedroom"},
+  "Synthwave":{ins:["Synth","808","Pad/Ambient","Drums"],pr:"Vintage/Retro"},
+  "Disco":{ins:["Bass","Drums","Synth","Strings","Brass Section"],pr:"Vintage/Retro"},
+  "Funk":{ins:["Electric Guitar","Bass","Drums","Brass Section"],pr:"Vintage/Retro"},
+  "Soul":{ins:["Piano","Bass","Drums","Brass Section","Organ"],pr:"Vintage/Retro"},
+  "Blues":{ins:["Electric Guitar","Piano","Bass","Drums","Organ"],pr:"Live/Raw"},
+  "Reggaeton":{ins:["808","Beat Machine","Synth","Percussion"],pr:"Heavy bass"},
+  "Classical":{ins:["Strings","Piano","Brass Section","Flute","Percussion"],pr:"Orchestral"},
+  "Gospel":{ins:["Piano","Organ","Drums","Bass"],pr:"Live/Raw"},
+};
 const LS={g:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch{return d}},s:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const countSyl=t=>{if(!t||t.match(/^\[/)||t.match(/^\(/)||!t.trim())return 0;return t.trim().replace(/\([^)]*\)/g,"").replace(/[,.\-!?;:"""''…]/g,"").split(/\s+/).filter(Boolean).length};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const recPlat=(g,m)=>(g==="Hip-hop"||g==="EDM"||g==="Trap")?"suno":(m==="Chill"||g==="Lo-fi")?"udio":"suno";
-const bpmFrom=t=>t.includes("60")?70:t.includes("80")?95:t.includes("110")?125:150;
+const bpmFrom=t=>t.includes("40")?50:t.includes("60")?70:t.includes("80")?95:t.includes("110")?125:150;
 const isContent=l=>l&&!l.match(/^\[/)&&!l.match(/^\(/)&&l.trim().length>0;
 
 export default function App(){
@@ -45,6 +89,9 @@ export default function App(){
   const[mood,setMood]=useState("Buồn");
   const[tempo,setTempo]=useState("Medium (80-110)");
   const[vocal,setVocal]=useState("Nam cao");
+  const[instr,setInstr]=useState(["Piano","Strings"]);
+  const[production,setProduction]=useState("Studio polished");
+  const[customBpm,setCustomBpm]=useState("");
   const[notes,setNotes]=useState("");
   const[mode,setMode]=useState("foreign");
   const[copied,setCopied]=useState("");
@@ -67,6 +114,14 @@ export default function App(){
   const[suggestions,setSuggestions]=useState(null); // [{title,artist,desc,genre,mood}]
   const rRef=useRef(null);
   const ak=keys[prov]||"";
+  const isFirstRender=useRef(true);
+
+  // Auto-suggest instruments + production when genre changes
+  useEffect(()=>{
+    if(isFirstRender.current){isFirstRender.current=false;return}
+    const def=GENRE_DEFAULTS[genre];
+    if(def){setInstr(def.ins);setProduction(def.pr)}
+  },[genre]);
 
   const toast=(msg,type="info")=>{const id=Date.now();setToasts(t=>[...t,{id,msg,type}]);setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)),3200)};
 
@@ -94,21 +149,23 @@ export default function App(){
 
   const pJ=raw=>{const c=raw.replace(/```json|```/g,"").trim();const m=c.match(/\{[\s\S]*\}/);if(!m)throw new Error("AI trả sai format, thử lại");try{return JSON.parse(m[0])}catch{const fixed=m[0].replace(/"((?:[^"\\]|\\.)*)"/g,(match)=>match.replace(/[\x00-\x1f]/g,ch=>ch==="\n"?"\\n":ch==="\r"?"\\r":ch==="\t"?"\\t":""));return JSON.parse(fixed)}};
 
-  const genPrompts=useCallback(async(lyrics,title,g,m,t,v,instr)=>{
-    const bpm=bpmFrom(t);const vE=v.includes("nữ")||v==="Duet"?"female":"male";
+  const genPrompts=useCallback(async(lyrics,title,g,m,t,v,instrArr,prod,cbpm)=>{
+    const bpm=cbpm?parseInt(cbpm):bpmFrom(t);const vE=v.includes("nữ")||v==="Duet"?"female":"male";
+    const instrStr=instrArr?.length>0?instrArr.join(", "):"piano, guitar, strings, drums";
+    const prodStr=prod||"Studio polished";
     const raw=await callAI(
 `Chuyên gia AI music tools: Suno, Udio, MusicFX, Stable Audio, Riffusion. CHỈ JSON.`,
-`Bài: "${title}" | ${g} | ${m} | ${bpm}BPM | Vocal: ${v} (${vE}) | Instruments: ${instr||"piano, guitar, strings, drums"}
+`Bài: "${title}" | ${g} | ${m} | ${bpm}BPM | Vocal: ${v} (${vE}) | Instruments: ${instrStr} | Production: ${prodStr}
 
 LYRICS:
 ${lyrics}
 
 TẠO JSON:
 {
-"suno":{"style_of_music":"tags cách phẩy, ≤200 ký tự. VD: Vietnamese ${g.toLowerCase()}, ${m.toLowerCase()}, ${vE} vocal, breathy, piano arpeggios, soft strings, acoustic guitar, ${bpm}bpm, studio quality, warm reverb, dynamic build","lyrics_for_suno":"[Verse 1]\\n(Softly)\\nlyrics...\\n\\n[Chorus]\\n(Powerful, belt)\\nlyrics...\\n\\n[Outro]\\n(Fading)\\nlyrics...\\n[End]","tips":"1. suno.com → Create\\n2. Bật Custom\\n3. Paste Style of Music\\n4. Paste Lyrics\\n5. Create → chờ 30s\\n6. Nghe 2 bản, chọn hay hơn\\n\\nMẹo: Đổi breathy → powerful để đổi chất giọng"},
-"udio":{"prompt":"1-2 câu tiếng Anh mô tả sound","tags":"${g.toLowerCase()}, vietnamese, ${m.toLowerCase()}, ${vE} vocal, piano, ${bpm}bpm","lyrics_for_udio":"[Verse]\\nlyrics...\\n[Chorus]\\nlyrics... (không đánh số)","tips":"1. udio.com → Create\\n2. Paste prompt\\n3. Thêm tags\\n4. Bật Custom Lyrics → paste\\n5. Generate\\n\\nMẹo: Dùng Extend để kéo dài bài"},
-"musicfx":{"prompt":"≤100 ký tự! CHỈ nhạc nền. VD: emotional piano ballad, soft strings, ${bpm}bpm, ${m.toLowerCase()} cinematic","tips":"⚠ Chỉ nhạc nền, KHÔNG vocal!\\n1. aitestkitchen.withgoogle.com/tools/music-fx\\n2. Paste prompt (giữ ngắn!)\\n3. Generate → download MP3\\n4. Ghép vocal bằng CapCut hoặc Audacity"},
-"stableaudio":{"prompt":"chi tiết instruments mood ${bpm}BPM production mixing","negative_prompt":"vocals, singing, speech, distortion, noise, clipping, low quality","duration":"45","tips":"1. stableaudio.com\\n2. Paste prompt + negative\\n3. Chọn duration\\n4. Generate → download\\n\\n⚠ Không vocal, ghép riêng"},
+"suno":{"style_of_music":"tags cách phẩy, ≤200 ký tự. VD: Vietnamese ${g.toLowerCase()}, ${m.toLowerCase()}, ${vE} vocal, ${instrStr}, ${bpm}bpm, ${prodStr.toLowerCase()}, warm reverb, dynamic build","lyrics_for_suno":"[Verse 1]\\n(Softly)\\nlyrics...\\n\\n[Chorus]\\n(Powerful, belt)\\nlyrics...\\n\\n[Outro]\\n(Fading)\\nlyrics...\\n[End]","tips":"1. suno.com → Create\\n2. Bật Custom\\n3. Paste Style of Music\\n4. Paste Lyrics\\n5. Create → chờ 30s\\n6. Nghe 2 bản, chọn hay hơn\\n\\nMẹo: Đổi breathy → powerful để đổi chất giọng"},
+"udio":{"prompt":"1-2 câu tiếng Anh mô tả sound chi tiết: genre, instruments (${instrStr}), mood, ${prodStr.toLowerCase()}","tags":"${g.toLowerCase()}, vietnamese, ${m.toLowerCase()}, ${vE} vocal, ${instrStr.split(',').slice(0,3).join(',')}, ${bpm}bpm","lyrics_for_udio":"[Verse]\\nlyrics...\\n[Chorus]\\nlyrics... (không đánh số)","tips":"1. udio.com → Create\\n2. Paste prompt\\n3. Thêm tags\\n4. Bật Custom Lyrics → paste\\n5. Generate\\n\\nMẹo: Dùng Extend để kéo dài bài"},
+"musicfx":{"prompt":"≤100 ký tự! CHỈ nhạc nền. VD: ${m.toLowerCase()} ${g.toLowerCase()} instrumental, ${instrStr.split(',').slice(0,3).join(',')}, ${bpm}bpm, ${prodStr.toLowerCase()}","tips":"⚠ Chỉ nhạc nền, KHÔNG vocal!\\n1. aitestkitchen.withgoogle.com/tools/music-fx\\n2. Paste prompt (giữ ngắn!)\\n3. Generate → download MP3\\n4. Ghép vocal bằng CapCut hoặc Audacity"},
+"stableaudio":{"prompt":"chi tiết: ${g.toLowerCase()} instrumental, ${instrStr}, ${bpm}BPM, ${m.toLowerCase()}, ${prodStr.toLowerCase()}, wide stereo, professional mastering","negative_prompt":"vocals, singing, speech, distortion, noise, clipping, low quality, amateur","duration":"45","tips":"1. stableaudio.com\\n2. Paste prompt + negative\\n3. Chọn duration\\n4. Generate → download\\n\\n⚠ Không vocal, ghép riêng"},
 "riffusion":{"prompt":"≤50 ký tự. VD: Vietnamese ${g.toLowerCase()} ${m.toLowerCase()} ${vE} vocal ${bpm}bpm","lyrics_for_riffusion":"CHỈ chorus + 1 verse ngắn","tips":"1. riffusion.com\\n2. Prompt ngắn\\n3. Paste lyrics ngắn\\n4. Generate\\n\\n⚠ Chất lượng thấp hơn Suno/Udio"}
 }`);
     return pJ(raw);
@@ -186,7 +243,8 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
 
   const handleRewrite=useCallback(async()=>{
     if(!song||!ak)return;setLoading(true);
-    const bpm=bpmFrom(tempo);const vE=vocal.includes("nữ")||vocal==="Duet"?"female":"male";
+    const bpm=customBpm?parseInt(customBpm):bpmFrom(tempo);const vE=vocal.includes("nữ")||vocal==="Duet"?"female":"male";
+    const instrStr=instr.length>0?instr.join(", "):"piano, guitar, drums";
     const task=mode==="foreign"?"CHUYỂN sang TIẾNG VIỆT":"VIẾT BÀI MỚI tiếng Việt lấy cảm hứng từ";
 
     // Pre-calculate syllable targets per line
@@ -203,6 +261,7 @@ JSON:{"title":"","artist":"","lyrics":"TOÀN BỘ lyrics có [Verse 1][Chorus][B
     const lRaw=await callAI(`Bạn là nhạc sĩ Việt Nam chuyên nghiệp. Nhiệm vụ: viết lời Việt cho bài hát, giữ ĐÚNG số âm tiết từng câu. CHỈ trả JSON.`,
 `${task}: "${song.title}"${song.artist?" - "+song.artist:""}
 Thể loại: ${genre} | Mood: ${mood} | ${bpm}BPM | Vocal: ${vocal}
+Nhạc cụ: ${instrStr} | Production: ${production}
 ${notes?`Yêu cầu thêm: ${notes}`:""}
 
 LYRICS GỐC + SỐ ÂM TIẾT TỪNG DÒNG (BẮT BUỘC KHỚP):
@@ -224,22 +283,22 @@ Gốc: "I see the universe" (5) → Việt: "Thấy cả bầu trời" (4) ✗ S
 JSON: {"title":"tên Việt","lyrics":"full lyrics có section markers, KHÔNG có số âm tiết, CHỈ lời hát"}`);
     const lR=pJ(lRaw);
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
-    const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,song.instruments);
+    const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,instr,production,customBpm);
     const result={title:lR.title,lyrics:lR.lyrics,prompts:pR};
     setViet(result);setUndos([]);setPromptsDirty(false);
     const rec=recPlat(genre,mood);setTab(rec);
-    const h=[{id:Date.now(),date:new Date().toLocaleDateString("vi"),orig:song.title+(song.artist?" - "+song.artist:""),viet:result.title,mode,genre,mood,vocal,tempo,notes,lyrics:result.lyrics,prompts:pR,origLyrics:song.lyrics,instruments:song.instruments},...hist].slice(0,20);
+    const h=[{id:Date.now(),date:new Date().toLocaleDateString("vi"),orig:song.title+(song.artist?" - "+song.artist:""),viet:result.title,mode,genre,mood,vocal,tempo,notes,instr,production,customBpm,lyrics:result.lyrics,prompts:pR,origLyrics:song.lyrics},...hist].slice(0,20);
     setHist(h);LS.s("vmm_h6",h);setStep(3);
     toast(`Xong! Gợi ý: ${PLATS.find(x=>x.id===rec)?.name}`,"ok");
     setTimeout(()=>rRef.current?.scrollIntoView({behavior:"smooth"}),100);
     }catch(e){toast(e.message,"err")}setLoading(false);
-  },[song,ak,genre,mood,tempo,vocal,notes,mode,callAI,genPrompts,hist]);
+  },[song,ak,genre,mood,tempo,vocal,instr,production,customBpm,notes,mode,callAI,genPrompts,hist]);
 
   useEffect(()=>{rewriteFn.current=handleRewrite},[handleRewrite]);
 
   const regenPromptsOnly=async()=>{
     if(!viet||!ak)return;setLoading(true);setLoadMsg("Cập nhật prompt...");
-    try{const pR=await genPrompts(viet.lyrics,viet.title,genre,mood,tempo,vocal,song?.instruments);
+    try{const pR=await genPrompts(viet.lyrics,viet.title,genre,mood,tempo,vocal,instr,production,customBpm);
       setViet(v=>({...v,prompts:pR}));setPromptsDirty(false);toast("Prompt đã cập nhật","ok");
     }catch(e){toast(e.message,"err")}setLoading(false);
   };
@@ -277,9 +336,9 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
   const reset=()=>{setStep(0);setQ("");setSong(null);setViet(null);setNotes("");setEditLine(null);setEditSongLine(null);setPasteMode(false);setPasteLy("");setUndos([]);setPromptsDirty(false);setSuggestions(null)};
   const ap=PLATS.find(p=>p.id===tab);const pd=viet?.prompts?.[tab];
   const getSec=ly=>ly?[...new Set((ly.match(/\[([^\]]+)\]/g)||[]).map(x=>x.replace(/[\[\]]/g,"")))]:[]; 
-  const applyPreset=p=>{setGenre(p.g);setMood(p.m);setTempo(p.t);setVocal(p.v);toast(p.name,"info")};
-  const loadHist=h=>{setSong({title:h.orig.split(" - ")[0],artist:h.orig.split(" - ")[1]||"",lyrics:h.origLyrics||"",genre:h.genre,mood:h.mood,instruments:h.instruments});
-    setViet({title:h.viet,lyrics:h.lyrics,prompts:h.prompts});setGenre(h.genre);setMood(h.mood);if(h.vocal)setVocal(h.vocal);if(h.tempo)setTempo(h.tempo);if(h.notes)setNotes(h.notes);setMode(h.mode);setTab("suno");setStep(3);setPromptsDirty(false)};
+  const applyPreset=p=>{setGenre(p.g);setMood(p.m);setTempo(p.t);setVocal(p.v);if(p.ins)setInstr(p.ins);if(p.pr)setProduction(p.pr);toast(p.name,"info")};
+  const loadHist=h=>{setSong({title:h.orig.split(" - ")[0],artist:h.orig.split(" - ")[1]||"",lyrics:h.origLyrics||"",genre:h.genre,mood:h.mood});
+    setViet({title:h.viet,lyrics:h.lyrics,prompts:h.prompts});setGenre(h.genre);setMood(h.mood);if(h.vocal)setVocal(h.vocal);if(h.tempo)setTempo(h.tempo);if(h.notes)setNotes(h.notes);if(h.instr)setInstr(h.instr);if(h.production)setProduction(h.production);if(h.customBpm)setCustomBpm(h.customBpm);setMode(h.mode);setTab("suno");setStep(3);setPromptsDirty(false)};
   const getOrigIdx=vi=>{if(!song||!viet)return-1;const vL=viet.lyrics.split("\n"),oL=song.lyrics.split("\n");
     let vc=0;for(let i=0;i<=vi;i++)if(isContent(vL[i]))vc++;if(!vc)return-1;
     let oc=0;for(let i=0;i<oL.length;i++){if(isContent(oL[i])){oc++;if(oc===vc)return i}}return-1};
@@ -511,16 +570,33 @@ CHỈ trả về lyrics mới cho [${sec}], KHÔNG header, KHÔNG giải thích.
       {step===2&&song&&!loading&&(<div className="fi"><div style={Z.card}>
         <p style={{color:C.gold,fontSize:15,fontWeight:600,marginBottom:12}}>Preset nhanh</p>
         <div className="preset-g" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:16}}>
-          {PRESETS.map(p=>{const active=p.g===genre&&p.m===mood&&p.t===tempo&&p.v===vocal;
+          {PRESETS.map(p=>{const active=p.g===genre&&p.m===mood&&p.t===tempo&&p.v===vocal&&p.pr===production;
             return<button key={p.name} onClick={()=>applyPreset(p)} style={{...Z.card,padding:"8px",cursor:"pointer",borderColor:active?C.gold:C.border,background:active?C.gold+"0d":C.card,textAlign:"center"}}>
               <div style={{fontSize:20}}>{p.icon}</div><div style={{color:active?C.gold:C.t3,fontSize:12,fontWeight:active?600:400,marginTop:2}}>{p.name}</div>
             </button>})}
         </div>
         <CR l="Thể loại"><PG items={GENRES} v={genre} set={setGenre}/></CR>
         <CR l="Mood"><PG items={MOODS} v={mood} set={setMood}/></CR>
-        <CR l="Tempo"><PG items={TEMPOS} v={tempo} set={setTempo}/></CR>
+        <CR l="Tempo">
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <PG items={TEMPOS} v={tempo} set={setTempo}/>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <input type="number" style={{...Z.inp,width:70,fontSize:13,textAlign:"center"}} placeholder="BPM" min={40} max={200} value={customBpm} onChange={e=>setCustomBpm(e.target.value)}/>
+              {customBpm&&<span style={{color:C.t4,fontSize:11}}>BPM</span>}
+            </div>
+          </div>
+        </CR>
         <CR l="Giọng hát"><PG items={VOCALS} v={vocal} set={setVocal}/></CR>
-        <CR l="Ghi chú"><textarea style={{...Z.inp,width:"100%",resize:"vertical",fontSize:14}} placeholder="VD: Thêm rap, drop EDM, giữ melody gốc..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2}/></CR>
+        <CR l={<span>Nhạc cụ <span style={{color:C.t4,fontWeight:400,fontSize:11}}>(tự gợi ý theo thể loại · bấm để thêm/bỏ)</span></span>}>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {INSTRUMENTS.map(i=>{const isDefault=GENRE_DEFAULTS[genre]?.ins?.includes(i);
+              return<button key={i} className={`pill ${instr.includes(i)?"on":""}`} onClick={()=>setInstr(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i])}
+                style={isDefault&&!instr.includes(i)?{borderColor:C.gold+"44",color:C.gold+"66"}:{}}>{i}{isDefault&&!instr.includes(i)?" ★":""}</button>})}
+          </div>
+          {instr.length>0&&<p style={{color:C.t3,fontSize:11,marginTop:4}}>Đã chọn: {instr.join(", ")}</p>}
+        </CR>
+        <CR l={<span>Production <span style={{color:C.t4,fontWeight:400,fontSize:11}}>(tự gợi ý theo thể loại)</span></span>}><PG items={PRODUCTIONS} v={production} set={setProduction}/></CR>
+        <CR l="Ghi chú"><textarea style={{...Z.inp,width:"100%",resize:"vertical",fontSize:14}} placeholder="VD: Thêm rap verse, drop EDM, guitar solo ở bridge..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2}/></CR>
         <button className="btn bp" onClick={handleRewrite} disabled={loading} style={{width:"100%",marginTop:8,fontSize:15}}>✨ Viết lời Việt + Tạo prompt</button>
         <p style={{color:C.t4,fontSize:11,textAlign:"center",marginTop:6}}>AI viết lời (~10s) → tạo prompt 5 platforms (~10s)</p>
       </div></div>)}
