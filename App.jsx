@@ -5,7 +5,7 @@ const PROVS=[
   {id:"groq",name:"Groq",url:"https://api.groq.com/openai/v1/chat/completions",model:"llama-3.3-70b-versatile",keyUrl:"https://console.groq.com/keys",ph:"gsk_...",desc:"Siêu nhanh · 30 req/phút",type:"openai"},
   {id:"cerebras",name:"Cerebras",url:"https://api.cerebras.ai/v1/chat/completions",model:"llama-3.3-70b",keyUrl:"https://cloud.cerebras.ai/",ph:"csk-...",desc:"Cực nhanh · Llama 3.3 70B",type:"openai"},
   {id:"sambanova",name:"SambaNova",url:"https://api.sambanova.ai/v1/chat/completions",model:"Meta-Llama-3.3-70B-Instruct",keyUrl:"https://cloud.sambanova.ai/apis",ph:"sk-...",desc:"Nhanh · Free không giới hạn",type:"openai"},
-  {id:"openrouter",name:"OpenRouter",url:"https://openrouter.ai/api/v1/chat/completions",model:"google/gemini-2.0-flash-exp:free",keyUrl:"https://openrouter.ai/keys",ph:"sk-or-...",desc:"Nhiều model free · Gemini/Llama",type:"openai"},
+  {id:"openrouter",name:"OpenRouter",url:"https://openrouter.ai/api/v1/chat/completions",model:"meta-llama/llama-3.3-70b-instruct:free",keyUrl:"https://openrouter.ai/keys",ph:"sk-or-...",desc:"Nhiều model free · Llama 3.3 70B",type:"openai"},
 ];
 const GENRES=["Pop","K-pop","Synth Pop","Dance Pop","Ballad","R&B","Hip-hop","Trap","Phonk","EDM","House","Future Bass","Dubstep","Ambient","Rock","Alternative","Indie","Metal","Punk","Acoustic","Folk","Country","Singer-songwriter","Jazz","Bossa Nova","Lo-fi","Synthwave","Disco","Funk","Soul","Blues","Reggaeton","Classical","Gospel"];
 const GENRE_GROUPS=[
@@ -303,7 +303,8 @@ export default function App(){
           if(pid!==prov){toast(`Viết lời bằng ${PROVS.find(p=>p.id===pid)?.name} (chất lượng tốt hơn)`,"info")}
           return r.text;
         }catch(e){
-          if(e.isQuota||e.noKey)continue; // try next
+          // Creative mode: try next provider on ANY error
+          if(order.indexOf(pid)<order.length-1){toast(`${PROVS.find(p=>p.id===pid)?.name} lỗi → thử tiếp...`,"warn");continue}
           throw new Error(e.message?.substring?.(0,100)||"Lỗi");
         }
       }
