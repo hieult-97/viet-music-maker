@@ -228,6 +228,8 @@ export default function App(){
   const[editPromptTxt,setEditPromptTxt]=useState("");
   const[suggestions,setSuggestions]=useState(null);
   const[similar,setSimilar]=useState(null);
+  const[showPasteAI,setShowPasteAI]=useState(false);
+  const[pasteAITxt,setPasteAITxt]=useState("");
   const rRef=useRef(null);
   const ak=keys[prov]||"";
   const isFirstRender=useRef(true);
@@ -680,14 +682,20 @@ VÍ DỤ SAI — TUYỆT ĐỐI KHÔNG VIẾT:
 JSON: {"title":"tên Việt hay sáng tạo (KHÔNG dịch tên gốc)","lyrics":"full lyrics, vần đẹp, xưng hô phù hợp nội dung"}`,
     2, false, true); // creative=true → auto-pick best Vietnamese AI
     const lR=pJ(lRaw);
-    // Post-process: clean foreign characters mixed into Vietnamese lyrics
+    // Post-process: clean up lyrics
     if(lR.lyrics){
       lR.lyrics=lR.lyrics
-        .replace(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g,"") // Remove CJK chars
-        .replace(/[a-zA-Z]{2,}/g,w=>/^(baby|oh|yeah|hey|la|na|uh|ah|mm|ooh|no|so|my|boy|girl|love|go|ok|yo|wow|come|run)$/i.test(w)?w:"") // Remove English except common song words
-        .replace(/\s{2,}/g," ") // Clean double spaces
-        .replace(/^\s+$/gm,"") // Clean blank lines with spaces
+        .replace(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g,"") // Remove leftover CJK chars
+        .replace(/\(\d+\)/g,"") // Remove syllable counts like (6), (8), (11)
+        .replace(/\s{2,}/g," ")
+        .replace(/^\s+$/gm,"")
         .split("\n").map(l=>l.trim()).join("\n");
+      // Quality check: if lyrics look like garbage, warn user
+      const words=lR.lyrics.replace(/\[.*?\]/g,"").split(/\s+/).filter(w=>w.length>1);
+      const avgWordLen=words.length?words.reduce((s,w)=>s+w.length,0)/words.length:0;
+      if(avgWordLen<2.5||words.length<10){
+        toast("Lời Việt chất lượng thấp — bấm 🔄 Cả bài để thử lại hoặc đổi provider","warn");
+      }
     }
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
     const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,instr,production,customBpm);
@@ -756,7 +764,7 @@ CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải th�
 
   const cp=(t,l)=>{navigator.clipboard.writeText(t);setCopied(l);setTimeout(()=>setCopied(""),1800)};
   const CB=({text,label,color})=>(<button onClick={()=>cp(text,label)} style={{...Z.cb,borderColor:color||C.gold,color:copied===label?"#1a1a2e":(color||C.gold),background:copied===label?(color||C.gold):"transparent"}}>{copied===label?"✓ Copied":"Copy"}</button>);
-  const reset=()=>{setStep(0);setQ("");setSong(null);setViet(null);setNotes("");setEditLine(null);setEditSongLine(null);setPasteMode(false);setPasteLy("");setUndos([]);setPromptsDirty(false);setSuggestions(null);setSimilar(null);setEditPromptKey(null)};
+  const reset=()=>{setStep(0);setQ("");setSong(null);setViet(null);setNotes("");setEditLine(null);setEditSongLine(null);setPasteMode(false);setPasteLy("");setUndos([]);setPromptsDirty(false);setSuggestions(null);setSimilar(null);setEditPromptKey(null);setShowPasteAI(false)};
   const ap=PLATS.find(p=>p.id===tab);const pd=viet?.prompts?.[tab];
   const getSec=ly=>ly?[...new Set((ly.match(/\[([^\]]+)\]/g)||[]).map(x=>x.replace(/[\[\]]/g,"")))]:[]; 
   const applyPreset=p=>{setGenre(p.g);setMood(p.m);setTempo(p.t);setVocal(p.v);if(p.ins)setInstr(p.ins);if(p.pr)setProduction(p.pr);const grp=GENRE_GROUPS.find(gr=>gr.items.includes(p.g));if(grp)setGenreGrp(grp.name);toast(p.name,"info")};
@@ -855,6 +863,21 @@ CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải th�
           </div>
         </div>))}
         <p style={{color:C.t4,fontSize:12,marginTop:8}}>Key lưu trên trình duyệt. Không gửi server nào.</p>
+      </div></div>)}
+
+      {showPasteAI&&(<div className="overlay" onClick={e=>{if(e.target===e.currentTarget)setShowPasteAI(false)}}><div className="modal fi">
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+          <h3 style={{color:"#34d399",fontSize:16,fontFamily:"'Instrument Serif',serif",fontWeight:400}}>📋 Paste lyrics từ AI Chat</h3>
+          <button onClick={()=>setShowPasteAI(false)} style={{background:"none",border:"none",color:C.t3,cursor:"pointer",fontSize:18}}>✕</button>
+        </div>
+        <p style={{color:C.t3,fontSize:12,marginBottom:8}}>Copy lyrics từ ChatGPT / Gemini / Grok → paste vào đây</p>
+        <textarea style={{...Z.inp,width:"100%",minHeight:200,resize:"vertical",lineHeight:1.8,fontSize:14}} placeholder={"[Verse 1]\nLời Việt từ AI Chat...\n\n[Chorus]\n..."} value={pasteAITxt} onChange={e=>setPasteAITxt(e.target.value)} autoFocus/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+          <span style={{color:C.t4,fontSize:11}}>{pasteAITxt.split("\n").filter(l=>l.trim()).length} dòng</span>
+          <button className="btn bp" disabled={pasteAITxt.trim().length<20} onClick={()=>{
+            setUndos(u=>[...u,viet.lyrics]);setViet(v=>({...v,lyrics:pasteAITxt.trim()}));setPromptsDirty(true);setShowPasteAI(false);toast("Đã thay lyrics — bấm 'Cập nhật prompt'","ok");
+          }}>Thay lyrics →</button>
+        </div>
       </div></div>)}
 
       {loading&&(<div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:50}}>
@@ -1092,6 +1115,44 @@ CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải th�
         <CR l="Ghi chú"><textarea style={{...Z.inp,width:"100%",resize:"vertical",fontSize:14}} placeholder="VD: Thêm rap verse, drop EDM, guitar solo ở bridge..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2}/></CR>
         <button className="btn bp" onClick={handleRewrite} disabled={loading} style={{width:"100%",marginTop:8,fontSize:15}}>✨ Viết lời Việt + Tạo prompt</button>
         <p style={{color:C.t4,fontSize:10.5,textAlign:"center",marginTop:4}}>hoặc <kbd style={{background:C.bg2,padding:"1px 5px",borderRadius:4,fontSize:10,border:`1px solid ${C.border}`}}>Ctrl+Enter</kbd></p>
+
+        {/* Copy prompt for external AI chatbots */}
+        <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+          <p style={{color:C.t3,fontSize:12,fontWeight:600,marginBottom:8}}>Hoặc: Copy prompt → dán vào AI Chat (chất lượng cao hơn)</p>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            <button className="btn bs" onClick={()=>{
+              const bpm=customBpm||bpmFrom(tempo);
+              const instrStr=instr.join(", ")||"piano, guitar";
+              const p=`Bạn là nhạc sĩ Việt Nam chuyên nghiệp (phong cách Phan Mạnh Quỳnh, Vũ, Đen Vâu). Viết lời Việt cho bài hát dựa trên bài gốc dưới đây.
+
+BÀI GỐC: "${song.title}"${song.artist?" - "+song.artist:""}
+CONFIG: ${genre} | ${mood} | ${bpm}BPM | Vocal: ${vocal} | Nhạc cụ: ${instrStr} | Production: ${production}
+${notes?"YÊU CẦU THÊM: "+notes:""}
+
+LYRICS GỐC:
+${song.lyrics}
+
+QUY TẮC:
+1. XƯNG HÔ phù hợp nội dung (tình yêu→anh/em, tình bạn→bạn/tôi, tự sự→ta)
+2. MỖI CẶP CÂU PHẢI VẦN cuối (AABB hoặc ABAB)
+3. Số âm tiết ≈ gốc ±2
+4. Ngôn ngữ thơ, gợi hình — KHÔNG giọng dịch/văn xuôi
+5. KHÔNG dịch literal — bắt cảm xúc, viết lại hoàn toàn
+6. 100% tiếng Việt, không lẫn ngoại ngữ
+7. Giữ cấu trúc [Verse 1] [Chorus] [Bridge] etc.
+
+Trả về:
+- Tên bài Việt (sáng tạo, không dịch tên gốc)
+- Full lyrics có section markers`;
+              cp(p,"aiprompt");toast("Đã copy prompt — dán vào AI Chat","ok");
+            }} style={{color:"#34d399",borderColor:"#34d39944",fontSize:12}}>📋 Copy prompt</button>
+            <a href="https://chat.openai.com" target="_blank" rel="noopener" className="btn bs" style={{fontSize:12,textDecoration:"none",color:"#60a5fa",borderColor:"#60a5fa44"}}>ChatGPT ↗</a>
+            <a href="https://gemini.google.com" target="_blank" rel="noopener" className="btn bs" style={{fontSize:12,textDecoration:"none",color:"#a78bfa",borderColor:"#a78bfa44"}}>Gemini ↗</a>
+            <a href="https://grok.com" target="_blank" rel="noopener" className="btn bs" style={{fontSize:12,textDecoration:"none",color:"#f87171",borderColor:"#f8717144"}}>Grok ↗</a>
+            <a href="https://claude.ai" target="_blank" rel="noopener" className="btn bs" style={{fontSize:12,textDecoration:"none",color:"#fbbf24",borderColor:"#fbbf2444"}}>Claude ↗</a>
+          </div>
+          <p style={{color:C.t4,fontSize:11,marginTop:6}}>Copy prompt → dán vào AI → copy lyrics kết quả → quay lại bấm "← Mới" → paste</p>
+        </div>
       </div></div>)}
 
       {step===3&&viet&&!loading&&(<div className="fi" ref={rRef}>
@@ -1147,6 +1208,7 @@ CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải th�
               <span style={{color:C.t4,fontSize:12}}>Viết lại:</span>
               {getSec(viet.lyrics).map(sec=><button key={sec} className="pill" onClick={()=>handleRegen(sec)} disabled={!!regenSec||loading} style={{color:regenSec===sec?"#1a1a2e":C.t3,background:regenSec===sec?C.gold:"transparent"}}>{regenSec===sec?"…":sec}</button>)}
               <button className="pill" onClick={()=>{setUndos(u=>[...u,viet.lyrics]);handleRewrite()}} disabled={!!regenSec||loading} style={{color:C.gold,borderColor:C.gold+"66",fontWeight:600}}>🔄 Cả bài</button>
+              <button className="pill" onClick={()=>{setPasteAITxt("");setShowPasteAI(true)}} style={{color:"#34d399",borderColor:"#34d39944"}}>📋 Paste từ AI</button>
             </div>)}
             <SylComp orig={song.lyrics} vi={viet.lyrics}/>
             {promptsDirty&&(<div className="dirty-bar"><p style={{color:"#fbbf24",fontSize:12}}>⚠ Lời đã sửa — prompt chưa cập nhật</p>
