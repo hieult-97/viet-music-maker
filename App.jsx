@@ -268,42 +268,60 @@ export default function App(){
       else if(s===2&&rewriteFn.current)rewriteFn.current();
     };window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
 
-  const callAI=useCallback(async(sys,usr,retries=2,useSearch=false)=>{
-    // Inner function that tries a specific provider
+  // Quality order for Vietnamese creative writing
+  const CREATIVE_ORDER=["gemini","openrouter","groq","cerebras","sambanova"];
+
+  const callAI=useCallback(async(sys,usr,retries=2,useSearch=false,creative=false)=>{
     const tryProv=async(pid)=>{
       const cfg=PROVS.find(p=>p.id===pid);
       const key=keys[pid]||"";
-      if(!key)throw new Error(`Chưa có API key cho ${cfg.name}`);
+      if(!key)throw{message:`Không có key ${cfg?.name}`,isQuota:false,noKey:true};
       if(cfg.type==="gemini"){
-        const body={contents:[{parts:[{text:`${sys}\n\n${usr}`}]}],generationConfig:{temperature:0.7,maxOutputTokens:4096}};
+        const body={contents:[{parts:[{text:`${sys}\n\n${usr}`}]}],generationConfig:{temperature:creative?0.85:0.7,maxOutputTokens:4096}};
         if(useSearch)body.tools=[{google_search:{}}];
         const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
         const d=await r.json();
         if(d.error)throw{message:d.error.message||"",isQuota:!!(d.error.message||"").match(/quota|rate|429/i)};
         const parts=d.candidates?.[0]?.content?.parts||[];
-        return parts.map(p=>p.text||"").join("\n");
+        return{text:parts.map(p=>p.text||"").join("\n"),usedProv:pid};
       }
       const headers={"Content-Type":"application/json",Authorization:`Bearer ${key}`};
       if(cfg.id==="openrouter")headers["HTTP-Referer"]="https://viet-music-maker.vercel.app";
-      const r=await fetch(cfg.url,{method:"POST",headers,body:JSON.stringify({model:cfg.model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:0.7,max_tokens:4096})});
+      const r=await fetch(cfg.url,{method:"POST",headers,body:JSON.stringify({model:cfg.model,messages:[{role:"system",content:sys},{role:"user",content:usr}],temperature:creative?0.85:0.7,max_tokens:4096})});
       const d=await r.json();
       if(d.error){const msg=d.error?.message||JSON.stringify(d.error);throw{message:msg,isQuota:!!msg.match(/rate|limit|429|quota/i)}}
-      return d.choices[0].message.content;
+      return{text:d.choices[0].message.content,usedProv:pid};
     };
 
-    // Try current provider, auto-fallback on quota
+    if(creative){
+      // Smart route: try best Vietnamese writers in order
+      const order=CREATIVE_ORDER.filter(id=>keys[id]);
+      if(!order.length)throw new Error("Chưa có API key nào. Vào ⚙ thêm key.");
+      for(const pid of order){
+        try{
+          const r=await tryProv(pid);
+          if(pid!==prov){toast(`Viết lời bằng ${PROVS.find(p=>p.id===pid)?.name} (chất lượng tốt hơn)`,"info")}
+          return r.text;
+        }catch(e){
+          if(e.isQuota||e.noKey)continue; // try next
+          throw new Error(e.message?.substring?.(0,100)||"Lỗi");
+        }
+      }
+      throw new Error("Tất cả providers hết quota. Vào ⚙ thêm key.");
+    }
+
+    // Normal route: use selected provider, fallback on quota
     for(let a=0;a<=retries;a++){
-      try{return await tryProv(prov)}
+      try{const r=await tryProv(prov);return r.text}
       catch(e){
         if(e.isQuota){
-          // Find alt provider with key and auto-retry immediately
           const alt=PROVS.find(p=>p.id!==prov&&keys[p.id]);
           if(alt){
-            toast(`${PROVS.find(p=>p.id===prov)?.name} hết quota → tự đổi ${alt.name}`,"warn");
+            toast(`${PROVS.find(p=>p.id===prov)?.name} hết quota → ${alt.name}`,"warn");
             setProv(alt.id);LS.s("vmm_p",alt.id);
-            try{return await tryProv(alt.id)}catch(e2){throw new Error(e2.message?.substring?.(0,100)||"Lỗi")}
+            try{const r=await tryProv(alt.id);return r.text}catch(e2){throw new Error(e2.message?.substring?.(0,100)||"Lỗi")}
           }
-          throw new Error(`Hết quota. Vào ⚙ thêm API key khác`);
+          throw new Error("Hết quota. Vào ⚙ thêm key khác");
         }
         const msg=e.message?.substring?.(0,100)||"Lỗi AI";
         if(a<retries){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}
@@ -318,22 +336,86 @@ export default function App(){
     const bpm=cbpm?parseInt(cbpm):bpmFrom(t);const vE=v.includes("nữ")||v==="Duet"?"female":"male";
     const instrStr=instrArr?.length>0?instrArr.join(", "):"piano, guitar, strings, drums";
     const prodStr=prod||"Studio polished";
+
+    // Build Suno lyrics programmatically — FULL lyrics + metatags
+    const sunoLyrics=lyrics.split("\n").map(l=>{
+      if(l.match(/\[Verse\s*1?\]/i))return l+"\n(Softly)";
+      if(l.match(/\[Verse\s*2\]/i))return l+"\n(Building)";
+      if(l.match(/\[Pre.?Chorus/i))return l+"\n(Building, anticipation)";
+      if(l.match(/\[Chorus/i))return l+"\n(Powerful, belt)";
+      if(l.match(/\[Bridge/i))return l+"\n(Gentle, emotional)";
+      if(l.match(/\[Outro/i))return l+"\n(Fading, whisper)";
+      return l;
+    }).join("\n")+"\n[End]";
+
+    // Build Udio lyrics — strip section numbers
+    const udioLyrics=lyrics.replace(/\[Verse\s*\d+\]/g,"[Verse]").replace(/\[Chorus\s*\d*\]/g,"[Chorus]");
+
+    // Build Riffusion lyrics — chorus + 1 verse only
+    const riffLines=lyrics.split("\n");
+    let riffLyrics="";let inSec="";
+    riffLines.forEach(l=>{
+      if(l.match(/\[Chorus/i)){inSec="chorus";riffLyrics+="[Chorus]\n"}
+      else if(l.match(/\[Verse\s*1?\]/i)&&!riffLyrics.includes("[Verse")){inSec="verse";riffLyrics+="[Verse]\n"}
+      else if(l.match(/^\[/)){inSec=""}
+      else if((inSec==="chorus"||inSec==="verse")&&l.trim()&&!l.match(/^\(/))riffLyrics+=l+"\n";
+    });
+
+    // AI generates DETAILED style/prompt fields — NOT lyrics
     const raw=await callAI(
-`Chuyên gia AI music tools: Suno, Udio, MusicFX, Stable Audio, Riffusion. CHỈ JSON.`,
+`Bạn là chuyên gia tạo prompt cho AI music platforms (Suno, Udio, MusicFX, Stable Audio, Riffusion). 
+Viết prompt CHI TIẾT, CHUYÊN NGHIỆP bằng tiếng Anh. CHỈ JSON.`,
 `Bài: "${title}" | ${g} | ${m} | ${bpm}BPM | Vocal: ${v} (${vE}) | Instruments: ${instrStr} | Production: ${prodStr}
 
-LYRICS:
-${lyrics}
+TẠO JSON — prompt phải CHI TIẾT, mô tả cụ thể vocal technique, emotional quality, dynamics, production:
 
-TẠO JSON:
+VÍ DỤ PROMPT TỐT (Suno style_of_music):
+"Vietnamese emotional pop ballad, tender breathy male vocal, intimate whisper verses building to powerful belt chorus, piano arpeggios with lush string swells, acoustic guitar fingerpicking, gentle kick drum, 96bpm, melancholic yet hopeful, studio polished, warm analog reverb, wide stereo imaging, dynamic crescendo"
+
+VÍ DỤ PROMPT DỞ:
+"Vietnamese pop, buồn, male vocal, piano, 96bpm" ← QUÁ NGẮN, thiếu detail
+
 {
-"suno":{"style_of_music":"tags cách phẩy, ≤200 ký tự. VD: Vietnamese ${g.toLowerCase()}, ${m.toLowerCase()}, ${vE} vocal, ${instrStr}, ${bpm}bpm, ${prodStr.toLowerCase()}, warm reverb, dynamic build","lyrics_for_suno":"[Verse 1]\\n(Softly)\\nlyrics...\\n\\n[Chorus]\\n(Powerful, belt)\\nlyrics...\\n\\n[Outro]\\n(Fading)\\nlyrics...\\n[End]","tips":"1. suno.com → Create\\n2. Bật Custom\\n3. Paste Style of Music\\n4. Paste Lyrics\\n5. Create → chờ 30s\\n6. Nghe 2 bản, chọn hay hơn\\n\\nMẹo: Đổi breathy → powerful để đổi chất giọng"},
-"udio":{"prompt":"1-2 câu tiếng Anh mô tả sound chi tiết: genre, instruments (${instrStr}), mood, ${prodStr.toLowerCase()}","tags":"${g.toLowerCase()}, vietnamese, ${m.toLowerCase()}, ${vE} vocal, ${instrStr.split(',').slice(0,3).join(',')}, ${bpm}bpm","lyrics_for_udio":"[Verse]\\nlyrics...\\n[Chorus]\\nlyrics... (không đánh số)","tips":"1. udio.com → Create\\n2. Paste prompt\\n3. Thêm tags\\n4. Bật Custom Lyrics → paste\\n5. Generate\\n\\nMẹo: Dùng Extend để kéo dài bài"},
-"musicfx":{"prompt":"≤100 ký tự! CHỈ nhạc nền. VD: ${m.toLowerCase()} ${g.toLowerCase()} instrumental, ${instrStr.split(',').slice(0,3).join(',')}, ${bpm}bpm, ${prodStr.toLowerCase()}","tips":"⚠ Chỉ nhạc nền, KHÔNG vocal!\\n1. aitestkitchen.withgoogle.com/tools/music-fx\\n2. Paste prompt (giữ ngắn!)\\n3. Generate → download MP3\\n4. Ghép vocal bằng CapCut hoặc Audacity"},
-"stableaudio":{"prompt":"chi tiết: ${g.toLowerCase()} instrumental, ${instrStr}, ${bpm}BPM, ${m.toLowerCase()}, ${prodStr.toLowerCase()}, wide stereo, professional mastering","negative_prompt":"vocals, singing, speech, distortion, noise, clipping, low quality, amateur","duration":"45","tips":"1. stableaudio.com\\n2. Paste prompt + negative\\n3. Chọn duration\\n4. Generate → download\\n\\n⚠ Không vocal, ghép riêng"},
-"riffusion":{"prompt":"≤50 ký tự. VD: Vietnamese ${g.toLowerCase()} ${m.toLowerCase()} ${vE} vocal ${bpm}bpm","lyrics_for_riffusion":"CHỈ chorus + 1 verse ngắn","tips":"1. riffusion.com\\n2. Prompt ngắn\\n3. Paste lyrics ngắn\\n4. Generate\\n\\n⚠ Chất lượng thấp hơn Suno/Udio"}
+"suno":{"style_of_music":"≤200 ký tự, tags chi tiết: genre, vocal technique (breathy/powerful/raspy/tender/falsetto), emotional quality, instruments CỤ THỂ cách chơi (piano arpeggios/guitar fingerpicking/string swells), tempo, production style, mixing details, dynamics (soft intro building to powerful chorus)"},
+"udio":{"prompt":"2-3 câu tiếng Anh mô tả CHÍNH XÁC sound: vocal character, instrumental texture, emotional arc, production aesthetic","tags":"10-15 tags cách phẩy: genre, sub-genre, vocal type, mood, instruments, tempo, era, production"},
+"musicfx":{"prompt":"≤100 ký tự! Nhạc nền only. Instrument textures + mood + tempo + production"},
+"stableaudio":{"prompt":"Chi tiết: genre instrumental, TẤT CẢ instruments cách chơi, BPM, mood, production quality, stereo width, mastering style","negative_prompt":"vocals, singing, speech, distortion, noise, clipping, low quality, amateur, mono, muddy, harsh"},
+"riffusion":{"prompt":"≤50 ký tự, core sound only"}
+}
+
+Tips cố định:
+suno tips: "1. suno.com → Create\\n2. Bật Custom\\n3. Paste Style of Music\\n4. Paste Lyrics → Create\\n5. Nghe 2 bản, chọn hay hơn\\n\\nMẹo: Thêm 'breathy' cho giọng nhẹ, 'belt' cho giọng mạnh"
+udio tips: "1. udio.com → Create\\n2. Paste prompt + tags\\n3. Bật Custom Lyrics → paste\\n4. Generate\\n\\nMẹo: Dùng Extend để kéo dài bài"
+musicfx tips: "⚠ Chỉ nhạc nền!\\n1. aitestkitchen.withgoogle.com/tools/music-fx\\n2. Paste prompt ngắn → Generate\\n3. Download MP3 → ghép vocal bằng CapCut"
+stableaudio tips: "1. stableaudio.com → Paste prompt + negative\\n2. Chọn duration → Generate\\n\\n⚠ Không vocal, ghép riêng"
+riffusion tips: "1. riffusion.com → Prompt ngắn + lyrics\\n2. Generate\\n\\n⚠ Chất lượng thấp hơn Suno/Udio"
 }`);
-    return pJ(raw);
+    const prompts=pJ(raw);
+
+    // Smart truncate at last comma/space before limit
+    const trunc=(s,max)=>{if(!s||s.length<=max)return s;const cut=s.substring(0,max);const li=Math.max(cut.lastIndexOf(","),cut.lastIndexOf(" "));return(li>max*0.6?cut.substring(0,li):cut).trim()};
+
+    // Enforce platform character limits
+    if(prompts.suno){
+      prompts.suno.style_of_music=trunc(prompts.suno.style_of_music,200);
+      prompts.suno.lyrics_for_suno=sunoLyrics;
+    }
+    if(prompts.udio){
+      prompts.udio.prompt=trunc(prompts.udio.prompt,1000);
+      prompts.udio.tags=trunc(prompts.udio.tags,200);
+      prompts.udio.lyrics_for_udio=udioLyrics;
+    }
+    if(prompts.musicfx)prompts.musicfx.prompt=trunc(prompts.musicfx.prompt,100);
+    if(prompts.stableaudio){
+      prompts.stableaudio.prompt=trunc(prompts.stableaudio.prompt,500);
+      prompts.stableaudio.negative_prompt=trunc(prompts.stableaudio.negative_prompt,200);
+      if(!prompts.stableaudio.duration)prompts.stableaudio.duration="45";
+    }
+    if(prompts.riffusion){
+      prompts.riffusion.prompt=trunc(prompts.riffusion.prompt,50);
+      prompts.riffusion.lyrics_for_riffusion=riffLyrics.trim();
+    }
+    return prompts;
   },[callAI]);
 
   const isSpecificQuery=useCallback(query=>{
@@ -536,7 +618,8 @@ VÍ DỤ SAI (TUYỆT ĐỐI KHÔNG VIẾT THẾ NÀY):
 ❌ "Trông mong, lúc đó" — fragment
 ✅ PHẢI viết: "Tình yêu này nặng quá em ơi" — câu hoàn chỉnh, hát được
 
-JSON: {"title":"tên Việt hay, sáng tạo","lyrics":"full lyrics có section markers, CHỈ lời hát, mỗi câu là câu hoàn chỉnh"}`);
+JSON: {"title":"tên Việt hay, sáng tạo","lyrics":"full lyrics có section markers, CHỈ lời hát, mỗi câu là câu hoàn chỉnh"}`,
+    2, false, true); // creative=true → auto-pick best Vietnamese AI
     const lR=pJ(lRaw);
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
     const pR=await genPrompts(lR.lyrics,lR.title,genre,mood,tempo,vocal,instr,production,customBpm);
@@ -575,7 +658,8 @@ QUY TẮC:
 - Số âm tiết ≈ phần gốc (±2)
 - 100% tiếng Việt, KHÔNG lẫn tiếng Anh
 
-CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải thích.`);
+CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải thích.`,
+      2, false, true); // creative=true
       setUndos(u=>[...u,viet.lyrics]);
       const lines=viet.lyrics.split("\n");let si=-1,ei=-1;let inSec=false;
       lines.forEach((l,i)=>{if(l.toLowerCase().includes(`[${sec.toLowerCase()}`)){inSec=true;si=i}else if(inSec&&l.match(/^\[/)&&i>si){ei=i;inSec=false}});
@@ -1012,9 +1096,12 @@ CHỈ trả lyrics mới cho [${sec}], KHÔNG header [${sec}], KHÔNG giải th�
             </div>
             {Object.entries(pd).filter(([k,v])=>v&&k!=="tips").map(([k,v])=>{
               const lb={style_of_music:"Style of Music ⭐",lyrics_for_suno:"Lyrics (Custom Lyrics)",prompt:"Prompt ⭐",tags:"Tags",lyrics_for_udio:"Lyrics",lyrics_for_riffusion:"Lyrics",negative_prompt:"Negative Prompt",duration:"Duration"}[k]||k;
+              const maxC={style_of_music:200,tags:200,negative_prompt:200,duration:0}[k]||(k==="prompt"?{suno:200,udio:1000,musicfx:100,stableaudio:500,riffusion:50}[tab]:0);
+              const charLen=typeof v==="string"?v.length:0;
               return(<div key={k} style={{marginBottom:10}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                  <span style={{color:C.t3,fontSize:12,fontWeight:600,textTransform:"uppercase"}}>{lb}</span><CB text={v} label={`${tab}-${k}`} color={ap.color}/>
+                  <span style={{color:C.t3,fontSize:12,fontWeight:600,textTransform:"uppercase"}}>{lb}{maxC>0&&!k.includes("lyrics")&&<span style={{fontWeight:400,color:charLen>maxC?"#f87171":C.t4,marginLeft:6,fontSize:11,textTransform:"none"}}>{charLen}/{maxC}</span>}</span>
+                  <CB text={v} label={`${tab}-${k}`} color={ap.color}/>
                 </div>
                 <div style={{...Z.lyBox,maxHeight:k.includes("lyrics")?240:120}}><pre style={{...Z.lyTxt,color:ap.color}}>{v}</pre></div>
               </div>)})}
