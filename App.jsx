@@ -91,7 +91,7 @@ export default function App(){
     }catch(e){if(a<retries){toast(`Thử lại (${a+1})...`,"warn");await sleep(1500*(a+1));continue}throw e}}
   },[prov,ak]);
 
-  const pJ=raw=>{const m=raw.replace(/```json|```/g,"").trim().match(/\{[\s\S]*\}/);if(m)return JSON.parse(m[0]);throw new Error("AI trả sai format, thử lại")};
+  const pJ=raw=>{const c=raw.replace(/```json|```/g,"").trim();const m=c.match(/\{[\s\S]*\}/);if(!m)throw new Error("AI trả sai format, thử lại");try{return JSON.parse(m[0])}catch{const fixed=m[0].replace(/"((?:[^"\\]|\\.)*)"/g,(match)=>match.replace(/[\x00-\x1f]/g,ch=>ch==="\n"?"\\n":ch==="\r"?"\\r":ch==="\t"?"\\t":""));return JSON.parse(fixed)}};
 
   const genPrompts=useCallback(async(lyrics,title,g,m,t,v,instr)=>{
     const bpm=bpmFrom(t);const vE=v.includes("nữ")||v==="Duet"?"female":"male";
