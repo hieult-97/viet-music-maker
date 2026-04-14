@@ -628,11 +628,11 @@ JSON:{"title":"tên CHÍNH XÁC bài được yêu cầu","artist":"","lyrics":"
 
     // Pre-calculate syllable targets per line
     const origLines=song.lyrics.split("\n");
-    let sylGuide="";let lineNum=0;
+    let sylGuide="";
     origLines.forEach(l=>{
       if(l.match(/^\[/)){sylGuide+=`\n${l}\n`}
       else if(l.match(/^\(/)||!l.trim()){/* skip */}
-      else{lineNum++;const syl=countSyl(l);sylGuide+=`  Dòng ${lineNum}: "${l.substring(0,40)}${l.length>40?"...":""}" → ${syl} âm tiết → viết câu Việt ${syl} âm tiết\n`}
+      else{const syl=countSyl(l);sylGuide+=`${l.substring(0,40)}${l.length>40?"...":""} (${syl})\n`}
     });
 
     try{
@@ -643,8 +643,13 @@ Thể loại: ${genre} | Mood: ${mood} | ${bpm}BPM | Vocal: ${vocal}
 Nhạc cụ: ${instrStr} | Production: ${production}
 ${notes?`Yêu cầu thêm: ${notes}`:""}
 
-LYRICS GỐC (tham khảo cảm xúc, KHÔNG dịch từng câu):
+LYRICS GỐC (số trong ngoặc = số âm tiết cần khớp):
 ${sylGuide}
+
+QUAN TRỌNG VỀ FORMAT:
+- Mỗi câu hát PHẢI TRÊN 1 DÒNG RIÊNG (xuống dòng sau mỗi câu)
+- KHÔNG viết tất cả trên 1 dòng
+- KHÔNG viết "Dòng 1:", "Câu 1:" hay đánh số trước lyrics
 
 BẠN LÀ NHẠC SĨ, KHÔNG PHẢI DỊCH GIẢ. Quy tắc:
 
@@ -679,22 +684,34 @@ VÍ DỤ SAI — TUYỆT ĐỐI KHÔNG VIẾT:
 ❌ "Tôi không thể rời bỏ bạn" — giọng văn xuôi, không phải lyrics
 ❌ Bất kỳ câu nào đọc lên nghe như DỊCH chứ không phải VIẾT
 
-JSON: {"title":"tên Việt hay sáng tạo (KHÔNG dịch tên gốc)","lyrics":"full lyrics, vần đẹp, xưng hô phù hợp nội dung"}`,
+JSON: {"title":"tên Việt hay","lyrics":"[Verse 1]\\ncâu 1\\ncâu 2\\n\\n[Chorus]\\ncâu 3\\ncâu 4... (dùng \\n xuống dòng, mỗi câu 1 dòng)"}`,
     2, false, true); // creative=true → auto-pick best Vietnamese AI
     const lR=pJ(lRaw);
-    // Post-process: clean up lyrics
+    // Post-process: fix common AI output issues
     if(lR.lyrics){
-      lR.lyrics=lR.lyrics
-        .replace(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g,"") // Remove leftover CJK chars
-        .replace(/\(\d+\)/g,"") // Remove syllable counts like (6), (8), (11)
+      let ly=lR.lyrics;
+      // Fix 1: If all on 1 line with "Dòng N:" pattern → split
+      if(ly.split("\n").length<5&&ly.includes("Dòng")){
+        ly=ly.replace(/\s*Dòng\s*\d+\s*[:：]\s*/g,"\n").trim();
+      }
+      // Fix 2: If still few lines but long → try split on [Section] markers
+      if(ly.split("\n").length<5&&ly.length>200){
+        ly=ly.replace(/\s*(\[(?:Verse|Chorus|Bridge|Pre.?Chorus|Outro|Intro)[^\]]*\])\s*/gi,"\n$1\n").trim();
+      }
+      // Fix 3: Remove "Dòng N:" prefixes even on separate lines
+      ly=ly.replace(/^Dòng\s*\d+\s*[:：]\s*/gm,"");
+      // Fix 4: Remove leftover CJK, syllable counts, numbering
+      ly=ly.replace(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g,"")
+        .replace(/\(\d+\)/g,"")
+        .replace(/^\d+\.\s*/gm,"")
         .replace(/\s{2,}/g," ")
         .replace(/^\s+$/gm,"")
-        .split("\n").map(l=>l.trim()).join("\n");
-      // Quality check: if lyrics look like garbage, warn user
-      const words=lR.lyrics.replace(/\[.*?\]/g,"").split(/\s+/).filter(w=>w.length>1);
-      const avgWordLen=words.length?words.reduce((s,w)=>s+w.length,0)/words.length:0;
-      if(avgWordLen<2.5||words.length<10){
-        toast("Lời Việt chất lượng thấp — bấm 🔄 Cả bài để thử lại hoặc đổi provider","warn");
+        .split("\n").map(l=>l.trim()).filter(l=>l).join("\n");
+      lR.lyrics=ly;
+      // Quality check
+      const lines=ly.split("\n").filter(l=>!l.match(/^\[/)&&l.trim());
+      if(lines.length<4){
+        toast("Lời Việt ít câu — bấm 🔄 Cả bài hoặc dùng 📋 Copy prompt → ChatGPT","warn");
       }
     }
     setLoadMsg("Tạo prompt 5 platforms (~10s)...");
